@@ -7,19 +7,17 @@ from Reporter import ReporterConfig, Reporter
 from Imagen import ImagenConfig, Imagen
 from Saver import SaverConfig, Saver
 from Controller import Controller
-from AestheticsPredictor import AestheticsPredictor
 import saving_utils
 import train_utils
 import sd_utils
 
-from typing import Literal
+from typing import Literal, List
 import dataclasses
 from dataclasses import dataclass
 import gc
 import os
 import itertools
 import shutil
-import io
 from datetime import datetime
 
 import torch
@@ -27,7 +25,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
 from transformers import CLIPTextModel, CLIPModel, CLIPTokenizer, CLIPImageProcessor
-from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler, StableDiffusionPipeline, DDIMScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler, DDIMScheduler
 from diffusers.optimization import get_scheduler as get_lr_scheduler
 
 from accelerate import Accelerator
@@ -40,6 +38,7 @@ import bitsandbytes
 class DreamlikeTrainerConfig:
   pretrained_model_name_or_path: str
   dataset_dir: str
+  cache_models: bool = True
   epochs: int = 4
   batch_size: int = 3
   lr: float = 1e-6
@@ -50,6 +49,7 @@ class DreamlikeTrainerConfig:
   cond_dropout: float = 0.1
   shuffle_captions: bool = True
   offset_noise_weight: float = 0.07
+  min_snr_gamma: float = 3.0
   resolution: int = 768
   precache_latents: bool = False
   ignore_cache: bool = False
@@ -59,7 +59,7 @@ class DreamlikeTrainerConfig:
 
 
 class DreamlikeTrainer:
-  config: DreamlikeTrainer = None
+  config: DreamlikeTrainerConfig = None
   run_name: str = None
   project_name: str = None
   run_dir: str = None
@@ -93,13 +93,13 @@ class DreamlikeTrainer:
   cached_dataloader_val: DataLoader = None
 
   reporter_config: ReporterConfig = None
-  imagen_conifg: ImagenConfig = None
+  imagen_config: ImagenConfig = None
 
   reporter: Reporter = None
   imagen: Imagen = None
   saver: Saver = None
   controller: Controller = None
-  modules = List[Reporter, Imagen, Saver] = None
+  modules = List = None
 
   _stop: bool = False
 
@@ -107,7 +107,7 @@ class DreamlikeTrainer:
   def __init__(self, config: DreamlikeTrainerConfig, reporter_config: ReporterConfig, imagen_config: ImagenConfig, saver_config: SaverConfig):
     self.config = config
     self.reporter_config = reporter_config
-    self.imagen_conifg = imagen_config
+    self.imagen_config = imagen_config
     self.saver_config = saver_config
 
     self.setup_run_dir()
@@ -203,7 +203,7 @@ class DreamlikeTrainer:
 
   def step(self, step, batch):
     with self.accelerator.accumulate(self.unet), self.accelerator.accumulate(self.text_encoder):
-      noise_pred, ground_truth = train_utils.get_unet_pred_ground_truth(
+      noise_pred, ground_truth, timestep = train_utils.get_unet_pred_ground_truth(
         batch=batch,
         unet=self.unet,
         text_encoder=self.text_encoder,
@@ -213,6 +213,8 @@ class DreamlikeTrainer:
       )
 
       loss = F.mse_loss(noise_pred.float(), ground_truth.float(), reduction='mean')
+      loss = loss * train_utils.get_snr_weight(timestep, self.scheduler, self.config.min_snr_gamma)
+      loss = loss.mean()
 
       self.accelerator.backward(loss)
       if self.accelerator.sync_gradients:
@@ -226,7 +228,7 @@ class DreamlikeTrainer:
   def setup_run_dir(self):
     self.run_name = datetime.now().strftime('run_%Y-%m-%d_%H-%M-%S')
     self.project_name = os.path.basename(self.config.project_dir)
-    self.run_dir = os.path.join(self.config.project_dir, 'runs', run_name)
+    self.run_dir = os.path.join(self.config.project_dir, 'runs', self.run_name)
     os.makedirs(os.path.join(self.config.project_dir, 'runs'), exist_ok=True)
     os.makedirs(self.run_dir)
     shutil.copyfile(os.path.join(self.config.project_dir, 'config.json5'), os.path.join(self.run_dir, 'config.json5'))
@@ -241,13 +243,19 @@ class DreamlikeTrainer:
       log_with='tensorboard',
       project_dir=os.path.join(self.config.project_dir, 'runs'),
     )
-    self.accelerator.init_trackers(run_name, config={})
+    self.accelerator.init_trackers(self.run_name, config={})
     self.device = self.accelerator.device
 
 
   def create_reporter(self):
     self.reporter_config.accelerator = self.accelerator
-    self.reporter = Reporter(reporter_config)
+    self.reporter_config.epochs = self.config.epochs
+    self.reporter_config.steps_per_epoch = self.steps_per_epoch
+    self.reporter_config.total_steps = self.total_steps
+    self.reporter_config.batch_size = self.config.batch_size
+    self.reporter_config.run_dir = self.run_dir
+    self.reporter_config.lr_scheduler = self.lr_scheduler
+    self.reporter = Reporter(self.reporter_config)
 
 
   def create_imagen(self):
@@ -257,15 +265,16 @@ class DreamlikeTrainer:
     self.imagen_config.unet = self.unet
     self.imagen_config.text_encoder = self.text_encoder
     self.imagen_config.tokenizer = self.tokenizer
-    self.imagen_config.raw_dataset = self.raw_dataset
+    self.imagen_config.raw_dataset = self.raw_dataset_train
     self.imagen_config.resolution = self.config.resolution
-    self.imagen_conifg.scheduler = self.ddim_scheduler
+    self.imagen_config.scheduler = self.ddim_scheduler
     self.imagen_config.accelerator = self.accelerator
     self.imagen = Imagen(self.imagen_config)
 
 
   def create_saver(self):
     self.saver_config.checkpoint_name = self.project_name
+    self.saver_config.pretrained_model_name_or_path = self.config.pretrained_model_name_or_path
     self.saver_config.save_dir = os.path.join(self.run_dir, 'models')
     self.saver_config.vae = self.vae
     self.saver_config.unet = self.unet
@@ -288,7 +297,7 @@ class DreamlikeTrainer:
 
 
   def load_sd(self):
-    sd = sd_utils.load_sd(self.config.pretrained_model_name_or_path, self.device, use_cache=True)
+    sd = sd_utils.load_sd(self.config.pretrained_model_name_or_path, self.device, use_cache=self.config.cache_models)
     self.tokenizer, self.text_encoder, self.unet, self.vae, self.scheduler = sd
     self.ddim_scheduler = DDIMScheduler.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='scheduler')
 
@@ -338,5 +347,5 @@ class DreamlikeTrainer:
     self.cached_dataloader_val = DataLoader(self.cached_dataset_val, batch_size=self.config.batch_size, shuffle=False, collate_fn=collate_fn)
 
     self.steps_per_epoch = len(self.cached_dataloader_train)
-    self.total_steps = steps_per_epoch * self.config.epochs
+    self.total_steps = self.steps_per_epoch * self.config.epochs
 

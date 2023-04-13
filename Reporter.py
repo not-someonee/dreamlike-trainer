@@ -2,9 +2,12 @@ import os
 
 from tqdm import tqdm
 import time
+from typing import List, Any
 from dataclasses import dataclass
+import dataclasses
 from PIL import Image
 import numpy as np
+import json5
 
 from accelerate import Accelerator
 
@@ -59,16 +62,15 @@ class ReporterConfig:
 
 
 class Reporter:
+  epochs_progress = None
+  total_steps_progress = None
+  epoch_progress = None
+
+
   def __init__(self, config: ReporterConfig):
     self.config = config
     self.epoch_megapixels_average_meter = AverageMeter()
     self.total_megapixels_average_meter = AverageMeter()
-    self.epochs_progress = tqdm(total=int(config.epochs), desc='Epochs', unit='ep')
-    self.total_steps_progress = tqdm(total=int(config.total_steps), desc='Total steps', unit='it')
-    self.epoch_progress = tqdm(total=int(config.steps_per_epoch), desc='Epoch steps', unit='it')
-    self.image_num = 0
-    self.last_gen_id = -1
-    self.images = []
     self.global_step = 0
     self.step = 0
     self.epoch = 0
@@ -93,10 +95,18 @@ class Reporter:
 
 
   def step_start(self, epoch: int, step: int):
-    self.epoch_progress.desc = 'Epoch ' + str(epoch) + ' steps'
+    if self.epoch_progress is not None:
+      self.epoch_progress.desc = 'Epoch ' + str(epoch) + ' steps'
 
 
   def step_end(self, epoch: int, step: int, global_step: int, lr: float, batch, loss: float):
+    just_created = False
+    if self.epochs_progress is None:
+      just_created = True
+      self.epochs_progress = tqdm(total=int(self.config.epochs), desc='Epochs', unit='ep')
+      self.total_steps_progress = tqdm(total=int(self.config.total_steps), desc='Total steps', unit='it')
+      self.epoch_progress = tqdm(total=int(self.config.steps_per_epoch), desc='Epoch steps', unit='it')
+
     self.global_step = global_step
     self.step = step
     self.epoch = epoch
@@ -105,6 +115,9 @@ class Reporter:
     self.epochs_progress.update(0)
     self.total_steps_progress.update(1)
     self.epoch_progress.update(1)
+
+    if just_created:
+      return
 
     batch_size = self.config.batch_size
 
@@ -116,7 +129,7 @@ class Reporter:
 
     steps_per_sec = float(self.epoch_progress.format_dict['rate'])
     imgs_done = step * batch_size
-    imgs = self.steps_per_epoch * batch_size
+    imgs = self.config.steps_per_epoch * batch_size
     imgs_per_sec = steps_per_sec * batch_size
     megapx_per_sec = self.epoch_megapixels_average_meter.average
 
@@ -145,35 +158,26 @@ class Reporter:
     self.epoch_progress.set_postfix(**epoch_postfix)
 
 
-  def report_image(self, image: Image, gen_id: int, params: object):
-    self.image_num += 1
-
-    if self.last_gen_id != gen_id:
-      images = [np.array(img) for img in self.images]
-      images_np = np.stack(images, axis=0)
-      images_np = images_np.transpose(0, 3, 1, 2)
-      self.config.accelerator.get_tracker('tensorboard').add_images('images', images_np, global_step=self.global_step)
-      self.image_num = 0
-      self.last_gen_id = gen_id
-      self.images = []
-
+  def report_images(self, images: List[Any], gen_id: int, params: List[Any]):
     gens_dir = os.path.join(self.config.run_dir, 'gens')
     os.makedirs(gens_dir, exist_ok=True)
 
     gen_dir = os.path.join(gens_dir, str(gen_id))
     os.makedirs(gen_dir, exist_ok=True)
 
-    save_path = os.path.join(gen_dir, str(self.image_num) + '.jpg')
+    # images_np = [np.array(img) for img in images]
+    # images_np = np.stack(images_np, axis=0)
+    # images_np = images_np.transpose(0, 3, 1, 2)
+    # self.config.accelerator.get_tracker('tensorboard').add_images('images', images_np, global_step=self.global_step)
 
-    image.save(save_path, 'JPEG', quality=98)
-    self.images.append(image)
+    for i, image in enumerate(images):
+      save_path = os.path.join(gen_dir, str(i) + '.jpg')
+      image.save(save_path, 'JPEG', quality=98)
 
-    print('', flush=True)
-    print(f'Generated image ({params["width"]}x{params["height"]}px)", saved to {save_path}', flush=True)
-    print('- Prompt: ' + params['prompt'], flush=True)
-    print('- Negative prompt: ' + params['negative_prompt'], flush=True)
-    print(f'- Steps/Scale/Seed: {params["steps"]}/{params["scale"]}/{params["seed"]}', flush=True)
-    print('', flush=True)
+    params_path = os.path.join(gen_dir, 'params.txt')
+    params_str = json5.dumps([dataclasses.asdict(p) for p in params], indent=2)
+    with open(params_path, 'w', encoding='utf-8') as file:
+      file.write(params_str)
 
 
   def report_val(self):

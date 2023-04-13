@@ -1,10 +1,11 @@
 import os
 import random
 import saving_utils
+import utils
 
 import torch
 from transformers import CLIPTokenizer, CLIPTextModel
-from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler, DDIMScheduler
 
 
 cache_file_path = './models_cache.txt'
@@ -24,15 +25,18 @@ def load_sd(pretrained_model_name_or_path: str, device, use_cache: bool = True):
 
   sd = _load_sd(pretrained_model_name_or_path, device)
 
-  basename = os.path.basename(pretrained_model_name_or_path) + '_' + str(random.ranint(0, 99999999))
-  saving_utils.save_diffusers(
-    os.path.join('./models_cache', basename),
+  basename = os.path.basename(pretrained_model_name_or_path) + '_' + str(random.randint(0, 99999999))
+  saving_utils.save_sd(
+    save_path=os.path.join('./models_cache', basename),
     tokenizer=sd[0],
     text_encoder=sd[1],
     unet=sd[2],
     vae=sd[3],
-    use_safetensors=True,
-    torch_dtype=torch.float32,
+    scheduler=DDPMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder='scheduler'),
+    should_save_diffusers=True,
+    should_save_compvis=False,
+    use_safetensors_for_diffusers=True,
+    use_safetensors_for_compvis=True,
   )
   with open(cache_file_path, 'a') as cache_file:
     cache_file.write(f'{pretrained_model_name_or_path}:{basename}\n')
@@ -44,6 +48,7 @@ def _load_sd(pretrained_model_name_or_path: str, device):
   with utils.Timer('Loading SD'):
     with utils.Timer('Loading tokenizer'):
       tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_name_or_path, subfolder='tokenizer')
+      tokenizer.deprecation_warnings['sequence-length-is-longer-than-the-specified-maximum'] = True
     with utils.Timer('Loading text_encoder'):
       text_encoder = CLIPTextModel.from_pretrained(pretrained_model_name_or_path, subfolder='text_encoder', torch_dtype=torch.float32)
       text_encoder.to(device)

@@ -1,20 +1,29 @@
 import os
 
 files = [
-  'train.py',
+  # 'setup_env.py',
+  # 'train.py',
+  'Controller.py',
+  'train_utils.py',
+  'sd_utils.py',
+  'keyboard_util.py',
+  'SDPipeline.py',
+  # 'saving_utils.py',
   'DreamlikeTrainer.py',
-  'RawDataset.py',
-  'CachedDataset.py',
+  # 'RawDataset.py',
+  # 'CachedDataset.py',
   'bucketing_utils.py',
   'Reporter.py',
   'Imagen.py',
-  'utils.py',
-  'saving_utils.py',
-  'train_utils.py',
-  'Validator.py',
+  'bcolors.py',
+  'Saver.py',
+  # 'utils.py',
+  # 'saving_utils.py',
+  # 'train_utils.py',
+  # 'Validator.py',
   # 'accelerate_config.yml',
 ]
-directories = ['weights']  # path/to/dir
+directories = []  # path/to/dir
 
 for file in files:
   print(file)

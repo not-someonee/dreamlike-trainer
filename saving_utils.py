@@ -1,3 +1,5 @@
+import torch
+
 import kohya_ss_model_utils
 import os.path
 
@@ -11,7 +13,6 @@ def save_sd(
   vae: AutoencoderKL,
   unet: UNet2DConditionModel,
   scheduler: DDIMScheduler,
-  torch_dtype,
   should_save_diffusers: bool = True,
   should_save_compvis: bool = False,
   use_safetensors_for_diffusers: bool = True,
@@ -24,7 +25,6 @@ def save_sd(
     vae=vae,
     unet=unet,
     scheduler=scheduler,
-    torch_dtype=torch_dtype,
     requires_safety_checker=False,
     safety_checker=None,
     feature_extractor=None,
@@ -44,7 +44,7 @@ def save_sd(
       unet=unet,
       epochs=0,
       steps=0,
-      save_dtype=torch_dtype,
+      save_dtype=torch.float32,
       ckpt_path=None,
     )
     print('Saved compvis to ' + compvis_save_path, flush=True)

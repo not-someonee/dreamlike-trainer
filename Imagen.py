@@ -2,10 +2,15 @@ import random
 from dataclasses import dataclass
 from math import isclose
 import time
+import tqdm
 from typing import List
+import traceback
 
+import utils
+import keyboard_util
 from Reporter import Reporter
 from RawDataset import RawDataset
+from SDPipeline import SDPipeline
 
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer
@@ -82,34 +87,35 @@ class Imagen:
   def step_start(self, epoch: int, step: int):
     pass
 
-  def step_end(self, epoch: int, step: int, batch, loss: float):
+  def step_end(self, epoch: int, step: int, global_step: int, lr: float, batch, loss: float):
     if (time.time() - self.last_gen_at) > (self.config.gen_every_n_minutes * 60.0):
       self.gen()
 
 
   @torch.no_grad()
   def prepare_for_gen(self):
-    self.pipe = StableDiffusionPipeline(
-      tokenizer=self.config.tokenizer,
-      text_encoder=self.accelerator.unwrap_model(self.text_encoder),
-      vae=AutoencoderKL.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='vae').to(self.config.accelerator.device),
-      unet=self.accelerator.unwrap_model(self.unet),
-      scheduler=self.config.scheduler,
-      torch_dtype=torch.float32,
-      requires_safety_checker=False,
-      safety_checker=None,
-      feature_extractor=None,
-    )
+    with utils.Timer('Preparing for gen'):
+      self.pipe = SDPipeline(
+        tokenizer=self.config.tokenizer,
+        text_encoder=self.config.accelerator.unwrap_model(self.config.text_encoder),
+        vae=AutoencoderKL.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='vae').to(self.config.accelerator.device),
+        unet=self.config.accelerator.unwrap_model(self.config.unet),
+        scheduler=self.config.scheduler,
+        requires_safety_checker=False,
+        safety_checker=None,
+        feature_extractor=None,
+      )
 
-    if self.use_tome:
-      tomesd.apply_patch(self.pipe.unet, ratio=self.config.tome_ratio)
+      if self.use_tome:
+        tomesd.apply_patch(self.pipe.unet, ratio=self.config.tome_ratio)
 
 
   @torch.no_grad()
   def prepare_for_train(self):
-    if self.use_tome:
-      tomesd.remove_patch(self.pipe.unet)
-    self.pipe = None
+    with utils.Timer('Preparing for train'):
+      if self.use_tome:
+        tomesd.remove_patch(self.pipe.unet)
+      self.pipe = None
 
 
   def get_gens_from_dataset(self):
@@ -156,27 +162,54 @@ class Imagen:
 
   @torch.no_grad()
   def gen(self):
-    self.prepare_for_gen()
-    try:
-      gens = self.get_gens_from_dataset()
-      gens.extend(self.get_gens_from_config())
-      self.set_default_gen_params(gens)
-      for gen in gens:
-        self.gen_img(gen)
-    except Exception as e:
-      print(e)
-    finally:
-      self.prepare_for_train()
-      self.gen_id += 1
-      self.last_gen_at = time.time()
+    print('\n\n\n', flush=True)
+    with utils.Timer('Generating images'):
+      self.prepare_for_gen()
+      try:
+        gens = self.get_gens_from_dataset()
+        gens.extend(self.get_gens_from_config())
+        self.set_default_gen_params(gens)
+        total_steps = 0
+        for gen in gens:
+          total_steps += gen.steps
+        with tqdm.tqdm(total=total_steps, desc='Imagen steps', unit=' steps') as progress_bar:
+          images = []
+          for i, gen in enumerate(gens):
+            progress_bar.desc = f'{i}/{len(gens)} imgs done | Press C to cancel'
+            image = self.gen_img(gen, progress_bar)
+            images.append(image)
+            keys = keyboard_util.get_pressed_keys()
+            if 'c' in keys:
+              break
+          self.config.reporter.report_images(images, self.gen_id, gens)
+        print('\n', flush=True)
+        print('\n', flush=True)
+        print('\n', flush=True)
+      except Exception:
+        traceback.print_exc()
+      finally:
+        self.prepare_for_train()
+        self.gen_id += 1
+        self.last_gen_at = time.time()
 
 
   @torch.no_grad()
-  def gen_img(self, params: GenParams):
+  def gen_img(self, params: GenParams, progress_bar):
     with isolate_rng():
       torch.manual_seed(params.seed)
-      image = None
-      self.config.reporter.report_image(image, self.gen_id, params)
+      def callback(_1, _2, _3):
+        progress_bar.update(1)
+      pil_images, _ = self.pipe(
+        prompt=params.prompt,
+        negative_prompt=params.negative_prompt,
+        guidance_scale=params.scale,
+        num_inference_steps=params.steps,
+        width=params.width,
+        height=params.height,
+        return_dict=False,
+        callback=callback,
+      )
+      return pil_images[0]
 
 
 # Blame ChatGPT if it doesn't work

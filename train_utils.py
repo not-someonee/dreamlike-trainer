@@ -2,6 +2,21 @@ import torch
 from transformers import CLIPTextModel
 from diffusers import DDPMScheduler, UNet2DConditionModel
 
+
+# https://arxiv.org/pdf/2303.09556.pdf
+def get_snr_weight(timesteps, scheduler, gamma):
+  alphas_cumprod = scheduler.alphas_cumprod
+  sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
+  sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - alphas_cumprod)
+  alpha = sqrt_alphas_cumprod
+  sigma = sqrt_one_minus_alphas_cumprod
+  all_snr = (alpha / sigma) ** 2
+  snr = torch.stack([all_snr[t] for t in timesteps])
+  gamma_over_snr = torch.div(torch.ones_like(snr) * gamma, snr)
+  snr_weight = torch.minimum(gamma_over_snr, torch.ones_like(gamma_over_snr)).float()
+  return snr_weight
+
+
 # Get predicted noise and ground truth (noise or noise velocity depending on SD version)
 def get_unet_pred_ground_truth(clip_penultimate: bool, offset_noise_weight: float, unet: UNet2DConditionModel, text_encoder: CLIPTextModel, batch, scheduler: DDPMScheduler):
   device = unet.device
@@ -38,4 +53,4 @@ def get_unet_pred_ground_truth(clip_penultimate: bool, offset_noise_weight: floa
   else:
     raise Exception('Unsupported scheduler.config.prediction_type: ' + scheduler.config.prediction_type)
 
-  return noise_pred, ground_truth
+  return noise_pred, ground_truth, timestep

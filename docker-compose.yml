@@ -9,6 +9,8 @@ services:
     container_name: dreamlike-trainer
     restart: always
     image: index.docker.io/dreamlikeart/dreamlike-trainer:latest
+    stdin_open: true
+    tty: true
     volumes:
       - huggingface_cache:/root/.cache/huggingface
       - models_cache:/workspace/models_cache

@@ -9,6 +9,8 @@ services:
     container_name: dreamlike-trainer
     restart: always
     image: dreamlike-trainer
+    stdin_open: true
+    tty: true
     volumes:
       - huggingface_cache:/root/.cache/huggingface
       - models_cache:/workspace/models_cache

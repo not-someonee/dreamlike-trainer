@@ -15,7 +15,6 @@ RUN pip install accelerate transformers safetensors diffusers tokenizers hugging
 RUN pip install bitsandbytes-cuda117 json5
 
 RUN pip install tqdm tomesd pytorch_lightning tensorboard
-RUN pip install keyboard
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 

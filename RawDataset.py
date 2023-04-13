@@ -206,7 +206,11 @@ class RawDataset(Dataset):
       filename = filename_with_ext.rsplit('.', 1)[0]
       item_meta_cache_path = os.path.join(meta_directory, filename + '.txt')
 
-      # Load native_width, native_height & caption from cache
+      # Get caption
+      caption_txt_file_path = os.path.join(directory, 'data', filename + '.txt')
+      caption = open(caption_txt_file_path, 'r', encoding='utf-8').read()
+
+      # Load native_width & native_height from cache
       # Still calc width, height to allow for easily changing training resolution
       if os.path.isfile(item_meta_cache_path):
         meta = json.loads(open(item_meta_cache_path, 'r', encoding='utf-8').read())
@@ -215,7 +219,7 @@ class RawDataset(Dataset):
           shuffle_captions=config.shuffle_captions,
           cond_dropout=config.cond_dropout,
           path=path,
-          caption=meta['caption'],
+          caption=caption,
           width=width, height=height,
           native_width=meta['native_width'], native_height=meta['native_height'],
         )
@@ -226,16 +230,11 @@ class RawDataset(Dataset):
         native_width, native_height = image.size
         width, height = bucketing_utils.find_closest_resolution(bucket_resolutions, native_width, native_height)
 
-        # Get caption
-        caption_txt_file_path = os.path.join(directory, 'data', filename + '.txt')
-        caption = open(caption_txt_file_path, 'r', encoding='utf-8').read()
-
         # Save meta cache
         with open(item_meta_cache_path, 'w+', encoding='utf-8') as file:
           file.write(json.dumps({
             'native_width': native_width,
             'native_height': native_height,
-            'caption': caption,
           }))
 
         data_item = RawDataItem(
