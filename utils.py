@@ -16,15 +16,6 @@ class Timer:
     print(self.text + ' done, took ' + "{:.2f}".format(end - self.start) + 's', flush=True)
 
 
-# Decode latents to pytorch tensor
-def decode_latents(vae, latents):
-  latents = 1 / 0.18215 * latents
-  image = vae.decode(latents).sample
-  image = (image / 2 + 0.5).clamp(0, 1)
-  image = image.cpu().permute(0, 2, 3, 1).float()
-  return image
-
-
 def garbage_collect():
   with Timer('Collecting GC garbage, freeing GPU memory'):
     gc.collect()

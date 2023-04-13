@@ -1,6 +1,7 @@
 from DreamlikeTrainer import DreamlikeTrainer, DreamlikeTrainerConfig
 from Reporter import ReporterConfig
 from Imagen import ImagenConfig
+from Saver import SaverConfig
 import utils
 
 import json5
@@ -28,6 +29,11 @@ def main():
   print(json5.dumps(json_config['trainer'], indent=2), flush=True)
 
   print('', flush=True)
+  print('Saver config: ', flush=True)
+  print(json5.dumps(json_config['saver'], indent=2), flush=True)
+  print('', flush=True)
+
+  print('', flush=True)
   print('Reporter config: ', flush=True)
   print(json5.dumps(json_config['reporter'], indent=2), flush=True)
   print('', flush=True)
@@ -40,9 +46,10 @@ def main():
   trainer_config = DreamlikeTrainerConfig(**json_config['trainer'], project_dir=args.project_dir)
   reporter_config = ReporterConfig(**json_config['reporter'])
   imagen_config = ImagenConfig(**json_config['imagen'])
+  saver_config = SaverConfig(**json_config['saver'])
 
   with utils.Timer('Initializing trainer'):
-    trainer = DreamlikeTrainer(trainer_config, reporter_config, imagen_config)
+    trainer = DreamlikeTrainer(trainer_config, reporter_config, imagen_config, saver_config)
 
   print('', flush=True)
 

@@ -1,8 +1,8 @@
 version: '2'
 
 volumes:
-  huggingface:
-  models:
+  huggingface_cache:
+  models_cache:
 
 services:
   dreamlike-trainer:
@@ -10,8 +10,9 @@ services:
     restart: always
     image: dreamlike-trainer
     volumes:
-      - huggingface:/root/.cache/huggingface
-      - models:/workspace/models-cache
+      - huggingface_cache:/root/.cache/huggingface
+      - models_cache:/workspace/models_cache
+      - ./models_cache.txt:/workspace/models_cache.txt
       - ./models:/workspace/models
       - ./projects:/workspace/projects
       - ./datasets:/workspace/datasets

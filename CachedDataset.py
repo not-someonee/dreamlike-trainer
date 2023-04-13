@@ -1,17 +1,18 @@
 from typing import List
-from torch.utils.data import Dataset
 import os
 from dataclasses import dataclass
-import safetensors
+import time
 
 import torch
 import torch.nn as nn
-from transformers import CLIPTextModel
+from torch.utils.data import Dataset
+from transformers import CLIPTextModel, CLIPTokenizer
 from diffusers import AutoencoderKL
+import safetensors
 
-import utils
 from RawDataset import RawDataset, RawDataItem
-import time
+import utils
+import sd_utils
 
 
 @dataclass
@@ -26,9 +27,30 @@ class CachedDataset(Dataset):
     self.raw_dataset = config.raw_dataset
     self.raw_config = config.raw_dataset.config
     self.device = self.raw_config.device
+    self.getitem_call_num = 0
+
+
+  @staticmethod
+  def make_collate_fn(tokenizer: CLIPTokenizer, device):
+    @torch.no_grad()
+    def collate_fn(batch):
+      latents = [v['image_latent'] for v in batch]
+      caption_token_ids = [sd_utils.tokenize(tokenizer, v['caption'], device) for v in batch]
+      megapixels = sum([v['megapixels'] for v in batch])
+
+      del batch
+
+      latents = torch.stack(latents).float()
+      caption_token_ids = torch.stack(caption_token_ids)
+
+      return { 'latents': latents, 'caption_token_ids': caption_token_ids, 'megapixels': megapixels }
+
+    return collate_fn
+
 
   def __len__(self):
     return self.raw_dataset.__len__()
+
 
   @torch.no_grad()
   def __getitem__(self, index):
@@ -58,6 +80,11 @@ class CachedDataset(Dataset):
       del image_latent
       safetensors.torch.save_file(cache, cache_tensor_path)
       cache['caption'] = caption
+
+    self.getitem_call_num += 1
+    if self.getitem_call_num >= self.__len__() and self.raw_dataset.config.ignore_cache:
+      self.raw_dataset.config.ignore_cache = False
+      print('Recalculated cache, switching ignore_cache to False')
 
     return cache
 

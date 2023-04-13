@@ -3,7 +3,7 @@ from transformers import CLIPTextModel
 from diffusers import DDPMScheduler, UNet2DConditionModel
 
 # Get predicted noise and ground truth (noise or noise velocity depending on SD version)
-def get_pred_ground_truth(clip_penultimate: bool, offset_noise_weight: float, unet: UNet2DConditionModel, text_encoder: CLIPTextModel, batch, scheduler: DDPMScheduler):
+def get_unet_pred_ground_truth(clip_penultimate: bool, offset_noise_weight: float, unet: UNet2DConditionModel, text_encoder: CLIPTextModel, batch, scheduler: DDPMScheduler):
   device = unet.device
   latents = batch['latents']
   caption_token_ids = batch['caption_token_ids']
