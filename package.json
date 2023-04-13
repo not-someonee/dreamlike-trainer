@@ -1,0 +1,9 @@
+{
+  "name": "dreamlike-trainer",
+  "scripts": {
+    "docker-build": "docker build -t dreamlike-trainer .",
+    "docker-build-plain-progress": "docker build --progress=plain -t 'dreamlike-trainer .",
+    "docker-copy": "python docker_copy.py"
+  }
+}
+

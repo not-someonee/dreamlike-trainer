@@ -15,6 +15,9 @@ dist-ssr
 *.env.yaml
 *.local
 lambda.private_ssh_key
+datasets
+models
+runs
 
 # Editor directories and files
 .vscode/*

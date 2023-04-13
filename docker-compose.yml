@@ -1,0 +1,24 @@
+version: '2'
+
+volumes:
+  huggingface:
+
+services:
+  dreamlike-trainer:
+    container_name: dreamlike-trainer
+    restart: always
+    image: index.docker.io/dreamlikeart/dreamlike-trainer:latest
+    volumes:
+      - huggingface:/root/.cache/huggingface
+      - ./models:/workspace/models
+      - ./projects:/workspace/projects
+      - ./datasets:/workspace/datasets
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
