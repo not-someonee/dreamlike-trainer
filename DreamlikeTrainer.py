@@ -77,6 +77,7 @@ class DreamlikeTrainer:
   unet: UNet2DConditionModel = None
   vae: AutoencoderKL = None
   scheduler: DDPMScheduler = None
+  ddim_scheduler: DDIMScheduler = None
 
   accelerator: Accelerator = None
   device = None
@@ -258,6 +259,7 @@ class DreamlikeTrainer:
     self.imagen_config.tokenizer = self.tokenizer
     self.imagen_config.raw_dataset = self.raw_dataset
     self.imagen_config.resolution = self.config.resolution
+    self.imagen_conifg.scheduler = self.ddim_scheduler
     self.imagen_config.accelerator = self.accelerator
     self.imagen = Imagen(self.imagen_config)
 
@@ -269,7 +271,7 @@ class DreamlikeTrainer:
     self.saver_config.unet = self.unet
     self.saver_config.text_encoder = self.text_encoder
     self.saver_config.tokenizer = self.tokenizer
-    self.saver_config.scheduler = DDIMScheduler.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='scheduler')
+    self.saver_config.scheduler = self.ddim_scheduler
     self.saver_config.accelerator = self.accelerator
     self.saver = Saver(self.saver_config)
 
@@ -288,6 +290,7 @@ class DreamlikeTrainer:
   def load_sd(self):
     sd = sd_utils.load_sd(self.config.pretrained_model_name_or_path, self.device, use_cache=True)
     self.tokenizer, self.text_encoder, self.unet, self.vae, self.scheduler = sd
+    self.ddim_scheduler = DDIMScheduler.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='scheduler')
 
 
   def create_optimizer(self):
