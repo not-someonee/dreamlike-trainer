@@ -6,6 +6,7 @@ from CachedDataset import CachedDataset, CachedDatasetConfig
 from Reporter import ReporterConfig, Reporter
 from Imagen import ImagenConfig, Imagen
 from Saver import SaverConfig, Saver
+from Controller import Controller
 from AestheticsPredictor import AestheticsPredictor
 import saving_utils
 import train_utils
@@ -96,7 +97,10 @@ class DreamlikeTrainer:
   reporter: Reporter = None
   imagen: Imagen = None
   saver: Saver = None
+  controller: Controller = None
   modules = List[Reporter, Imagen, Saver] = None
+
+  _stop: bool = False
 
 
   def __init__(self, config: DreamlikeTrainerConfig, reporter_config: ReporterConfig, imagen_config: ImagenConfig, saver_config: SaverConfig):
@@ -104,7 +108,7 @@ class DreamlikeTrainer:
     self.reporter_config = reporter_config
     self.imagen_conifg = imagen_config
     self.saver_config = saver_config
-    
+
     self.setup_run_dir()
     self.create_accelerator()
 
@@ -120,12 +124,13 @@ class DreamlikeTrainer:
     self.create_lr_scheduler()
 
     self.prepare_accelerator()
-    
+
     self.create_reporter()
     self.create_imagen()
     self.create_saver()
+    self.create_controller()
 
-    self.modules = [self.reporter, self.imagen, self.saver]
+    self.modules = [self.reporter, self.imagen, self.saver, self.controller]
 
 
   def train_start(self):
@@ -179,12 +184,20 @@ class DreamlikeTrainer:
         self.step(step, batch)
         self.step_end(epoch, step, batch)
         del batch
+        if self._stop:
+          break
+      if self._stop:
+        break
 
       self.epoch_end(epoch)
 
     self.train_end()
 
     self.accelerator.end_training()
+
+
+  def stop(self):
+    self._stop = True
 
 
   def step(self, step, batch):
@@ -199,7 +212,7 @@ class DreamlikeTrainer:
       )
 
       loss = F.mse_loss(noise_pred.float(), ground_truth.float(), reduction='mean')
-      
+
       self.accelerator.backward(loss)
       if self.accelerator.sync_gradients:
         self.accelerator.clip_grad_norm_(itertools.chain(self.unet.parameters(), self.text_encoder.parameters()), 1.0)
@@ -259,6 +272,11 @@ class DreamlikeTrainer:
     self.saver_config.scheduler = DDIMScheduler.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='scheduler')
     self.saver_config.accelerator = self.accelerator
     self.saver = Saver(self.saver_config)
+
+
+
+  def create_controller(self):
+    self.controller = Controller(self)
 
 
   def prepare_accelerator(self):
