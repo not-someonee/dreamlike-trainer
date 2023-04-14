@@ -5,7 +5,7 @@ import utils
 
 import torch
 from transformers import CLIPTokenizer, CLIPTextModel
-from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler, DDIMScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler, EulerDiscreteScheduler
 
 
 cache_file_path = './models_cache.txt'

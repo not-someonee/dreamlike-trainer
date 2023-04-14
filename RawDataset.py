@@ -107,6 +107,7 @@ class RawDatasetConfig:
   seed: int = 42
   ignore_cache: bool = False
   val_split: float = 0.1
+  max_images: int = 0
   max_val_images: int = 500
 
 
@@ -146,6 +147,14 @@ class RawDataset(Dataset):
     return data_item
 
 
+  def shuffle(self):
+    print('\n\n\n', flush=True)
+    with utils.Timer('Shuffling dataset'):
+      random.shuffle(self.data_items)
+    with utils.Timer('Bucketizing images'):
+      self.data_items = self.bucketize_data_items(self.data_items, self.config.batch_size)
+    print('\n\n\n', flush=True)
+
   # Load an array of paths to all images in the config.directory
   # If paths_cache.txt exists, loads paths from it
   # Else uses glob and writes paths_cache.txt
@@ -157,40 +166,42 @@ class RawDataset(Dataset):
       return []
 
     paths = None
-    rnd = random.Random(config.seed)
 
     paths_cache_path = os.path.join(config.directory, 'paths_cache.txt')
     # paths_cache.txt exists, and we can use cache; make sure the seed is the same; then load the paths and return them
     if not config.ignore_cache and os.path.isfile(paths_cache_path):
       with open(paths_cache_path, 'r', encoding='utf-8') as file:
+        max_images = file.readline().strip()
         seed = file.readline().strip()
-        if seed == config.seed:
+        if max_images == config.max_images and seed == config.seed:
           paths = [line.strip() for line in file]
+          if config.max_images != 0 and len(paths) > config.max_images:
+            paths = paths[:config.max_images]
 
     if paths is None:
       # Use glob to load paths; shuffle them with seed; write paths_cache.txt; return paths
       glob_pattern = os.path.join(config.directory, 'data', '*.*')
       paths = glob.glob(glob_pattern)
       paths = [p for p in paths if p.endswith(('jpg', 'jpeg', 'png', 'webp'))]
+      if config.max_images != 0 and len(paths) > config.max_images:
+        paths = paths[:config.max_images]
       random.Random(config.seed).shuffle(paths)
       with open(paths_cache_path, 'w+', encoding='utf-8') as file:
+        file.write(str(config.max_images) + '\n')
         file.write(str(config.seed) + '\n')
         for path in paths:
           file.write(path.replace('\\', '/') + '\n')
 
+
     if isclose(config.val_split, 0.0, abs_tol=0.001):
       return paths
 
-    result = []
+    paths_to_split = int(min(config.max_val_images, config.val_split * len(paths)))
+
     if config.type == 'train':
-      for path in paths:
-        if random.random() > config.val_split:
-          result.append(path)
-    else:
-      for path in paths:
-        if random.random() < config.val_split:
-          result.append(path)
-    return result
+      return paths[paths_to_split:]
+
+    return paths[:paths_to_split]
 
 
   # Load image width, height, caption, etc. for each path in self.paths; Return List[RawDataItem]

@@ -15,3 +15,4 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 os.environ['SAFETENSORS_FAST_GPU'] = '1'
 
 torch.backends.cudnn.benchmark = False
+

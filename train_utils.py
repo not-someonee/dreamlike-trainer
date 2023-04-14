@@ -1,4 +1,8 @@
+import math
+
 import torch
+import torch.nn.functional as F
+
 from transformers import CLIPTextModel
 from diffusers import DDPMScheduler, UNet2DConditionModel
 
@@ -54,3 +58,11 @@ def get_unet_pred_ground_truth(clip_penultimate: bool, offset_noise_weight: floa
     raise Exception('Unsupported scheduler.config.prediction_type: ' + scheduler.config.prediction_type)
 
   return noise_pred, ground_truth, timestep
+
+
+def calc_unet_loss(step, noise_pred, ground_truth, timestep, snr, snr_warmup_steps, scheduler):
+  loss = F.mse_loss(noise_pred.float(), ground_truth.float(), reduction='mean')
+  snr_lerp_factor = 0.0 if math.isclose(snr, 0.0, abs_tol=0.001) else (1.0 if step >= snr_warmup_steps else (step / snr_warmup_steps))
+  loss = torch.lerp(loss, loss * get_snr_weight(timestep, scheduler, snr), snr_lerp_factor)
+  loss = loss.mean()
+  return loss

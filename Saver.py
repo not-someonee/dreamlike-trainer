@@ -9,7 +9,7 @@ from RawDataset import RawDataset
 import saving_utils
 
 from transformers import CLIPTextModel, CLIPTokenizer
-from diffusers import UNet2DConditionModel, AutoencoderKL, DDIMScheduler
+from diffusers import UNet2DConditionModel, AutoencoderKL, EulerDiscreteScheduler
 from accelerate import Accelerator
 
 from dataclasses import dataclass
@@ -30,7 +30,7 @@ class SaverConfig:
   unet: UNet2DConditionModel = None
   text_encoder: CLIPTextModel = None
   tokenizer: CLIPTokenizer = None
-  scheduler: DDIMScheduler = None
+  scheduler: EulerDiscreteScheduler = None
   accelerator: Accelerator = None
 
 
@@ -57,7 +57,10 @@ class Saver:
 
 
   def epoch_end(self, epoch: int):
-    if epoch % self.config.save_every_n_epochs == 0:
+    if epoch == 0:
+      if self.config.save_every_n_epochs == 1:
+        self.save()
+    elif (epoch % self.config.save_every_n_epochs) == 0:
       self.save()
 
 
@@ -65,7 +68,7 @@ class Saver:
     pass
 
 
-  def step_end(self, epoch: int, step: int, global_step: int, lr: float, batch, loss: float):
+  def step_end(self, epoch: int, step: int, global_step: int, unet_lr: float, te_lr: float, batch, loss: float):
     self.epoch = epoch
     self.step = step
     self.global_step = global_step

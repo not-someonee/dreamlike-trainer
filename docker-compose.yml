@@ -3,6 +3,7 @@ version: '2'
 volumes:
   huggingface_cache:
   models_cache:
+  docker_datasets:
 
 services:
   dreamlike-trainer:
@@ -18,6 +19,7 @@ services:
       - ./models:/workspace/models
       - ./projects:/workspace/projects
       - ./datasets:/workspace/datasets
+      - docker_datasets:/workspace/docker_datasets
     deploy:
       resources:
         reservations:

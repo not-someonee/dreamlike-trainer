@@ -14,7 +14,7 @@ from SDPipeline import SDPipeline
 
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer
-from diffusers import UNet2DConditionModel, AutoencoderKL, DDIMScheduler
+from diffusers import UNet2DConditionModel, AutoencoderKL, EulerDiscreteScheduler
 from accelerate import Accelerator
 from pytorch_lightning.utilities.seed import isolate_rng
 import tomesd
@@ -36,6 +36,7 @@ class GenParams:
 class ImagenConfig:
   gen: bool = True
   gen_every_n_minutes: float = 5.0
+  gen_every_n_steps: int = 5
   gen_every_n_epochs: int = 1
   gen_on_training_start: bool = True
   gen_on_training_end: bool = True
@@ -53,7 +54,7 @@ class ImagenConfig:
   pretrained_model_name_or_path: str = ''
   reporter: Reporter = None
   vae: AutoencoderKL = None
-  scheduler: DDIMScheduler = None
+  scheduler: EulerDiscreteScheduler = None
   unet: UNet2DConditionModel = None
   text_encoder: CLIPTextModel = None
   tokenizer: CLIPTokenizer = None
@@ -82,13 +83,19 @@ class Imagen:
     pass
 
   def epoch_end(self, epoch: int):
-    pass
+    if epoch == 0:
+      if self.config.gen_every_n_epochs == 1:
+        self.gen()
+    elif (epoch % self.config.gen_every_n_epochs) == 0:
+      self.gen()
 
   def step_start(self, epoch: int, step: int):
     pass
 
-  def step_end(self, epoch: int, step: int, global_step: int, lr: float, batch, loss: float):
+  def step_end(self, epoch: int, step: int, global_step: int, unet_lr: float, te_lr: float, batch, loss: float):
     if (time.time() - self.last_gen_at) > (self.config.gen_every_n_minutes * 60.0):
+      self.gen()
+    if global_step != 0 and (global_step % self.config.gen_every_n_steps) == 0:
       self.gen()
 
 
@@ -123,7 +130,7 @@ class Imagen:
       return []
 
     with isolate_rng():
-      random.seed(time.time())
+      random.seed(self.config.seed + self.gen_id)
       gens = []
       for i in range(self.config.num_gens_from_dataset):
         gen = GenParams(prompt=self.config.raw_dataset[random.randint(0, len(self.config.raw_dataset) - 1)].caption)
@@ -139,7 +146,7 @@ class Imagen:
 
   def set_default_gen_params(self, gens: List[GenParams]):
     with isolate_rng():
-      random.seed(time.time())
+      random.seed(self.config.seed + self.gen_id)
       for gen in gens:
         if gen.seed is None or gen.seed == -1:
           gen.seed = self.config.seed
@@ -151,6 +158,8 @@ class Imagen:
           gen.steps = self.config.steps
         if gen.aspect_ratio is None:
           gen.aspect_ratio = self.config.aspect_ratio
+        if isclose(gen.aspect_ratio, -1, abs_tol=0.001):
+          gen.aspect_ratio = random.uniform(0.5, 2)
         if gen.prompt is None:
           gen.prompt = ''
         if gen.negative_prompt is None:

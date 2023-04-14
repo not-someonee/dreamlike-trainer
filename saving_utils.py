@@ -4,7 +4,7 @@ import kohya_ss_model_utils
 import os.path
 
 from transformers import CLIPTextModel, CLIPModel, CLIPTokenizer, CLIPImageProcessor
-from diffusers import AutoencoderKL, UNet2DConditionModel, StableDiffusionPipeline, DDIMScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel, StableDiffusionPipeline, EulerDiscreteScheduler
 
 def save_sd(
   save_path: str,
@@ -12,7 +12,7 @@ def save_sd(
   text_encoder: CLIPTextModel,
   vae: AutoencoderKL,
   unet: UNet2DConditionModel,
-  scheduler: DDIMScheduler,
+  scheduler: EulerDiscreteScheduler,
   should_save_diffusers: bool = True,
   should_save_compvis: bool = False,
   use_safetensors_for_diffusers: bool = True,

@@ -43,7 +43,7 @@ class Controller:
   def step_start(self, epoch: int, step: int):
     pass
 
-  def step_end(self, epoch: int, step: int, global_step: int, lr: float, batch, loss: float):
+  def step_end(self, epoch: int, step: int, global_step: int, unet_lr: float, te_lr: float, batch, loss: float):
     if (time.time() - self.last_printed_help_at) > (self.print_help_every_n_minutes * 60):
       self.print_help()
     self.check_keypresses()

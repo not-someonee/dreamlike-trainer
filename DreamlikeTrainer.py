@@ -6,6 +6,7 @@ from CachedDataset import CachedDataset, CachedDatasetConfig
 from Reporter import ReporterConfig, Reporter
 from Imagen import ImagenConfig, Imagen
 from Saver import SaverConfig, Saver
+from Validator import ValidatorConfig, Validator
 from Controller import Controller
 import saving_utils
 import train_utils
@@ -15,6 +16,7 @@ from typing import Literal, List
 import dataclasses
 from dataclasses import dataclass
 import gc
+import math
 import os
 import itertools
 import shutil
@@ -25,8 +27,10 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
 from transformers import CLIPTextModel, CLIPModel, CLIPTokenizer, CLIPImageProcessor
-from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler, DDIMScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler, EulerDiscreteScheduler
 from diffusers.optimization import get_scheduler as get_lr_scheduler
+from lion_pytorch import Lion
+from torch.optim.lr_scheduler import LambdaLR
 
 from accelerate import Accelerator
 from accelerate.utils import set_seed
@@ -38,23 +42,51 @@ import bitsandbytes
 class DreamlikeTrainerConfig:
   pretrained_model_name_or_path: str
   dataset_dir: str
+  mode: Literal['train', 'lr_finder'] = 'train'
   cache_models: bool = True
   epochs: int = 4
   batch_size: int = 3
-  lr: float = 1e-6
-  lr_scheduler: Literal['constant', 'cosine'] = 'constant'
-  lr_warmup_steps: int = 0
   seed: int = 42
   clip_penultimate: bool = False
   cond_dropout: float = 0.1
   shuffle_captions: bool = True
+  shuffle_dataset_each_epoch: bool = True
   offset_noise_weight: float = 0.07
-  min_snr_gamma: float = 3.0
+
+  dataset_max_images: int = 0
+
+  dataset_val_split: float = 0.1
+  dataset_max_val_images: int = 500
+  validate_every_n_minutes: int = 30
+  validate_every_n_epochs: int = 99999999
+  validate_every_n_steps: int = 99999999
+  validate_at_training_start: bool = True
+  validate_at_training_end: bool = True
+
+  unet_lr: float = 1e-6
+  unet_lr_scheduler: Literal['constant', 'cosine', 'cosine_with_restarts'] = 'cosine_with_restarts'
+  unet_lr_warmup_steps: int = 0
+
+  te_lr: float = 1e-6
+  te_lr_scheduler: Literal['constant', 'cosine', 'cosine_with_restarts'] = 'cosine_with_restarts'
+  te_lr_warmup_steps: int = 0
+
+  optimizer: Literal['adam', 'lion'] = 'lion'
+
+  adam_optimizer_weight_decay: float = 1e-2
+  adam_optimizer_beta_one: float = 0.9
+  adam_optimizer_beta_two: float = 0.999
+
+  lion_optimizer_weight_decay: float = 1e-2
+  lion_optimizer_beta_one: float = 0.9
+  lion_optimizer_beta_two: float = 0.99
+  lion_optimizer_lr_multiplier: float = 0.2
+
+  snr: float = 5.0
+  snr_warmup_steps: int = 0
   resolution: int = 768
   precache_latents: bool = False
   ignore_cache: bool = False
-  dataset_val_split: float = 0.1
-  dataset_max_val_images: int = 500
   project_dir: str = None
 
 
@@ -77,12 +109,16 @@ class DreamlikeTrainer:
   unet: UNet2DConditionModel = None
   vae: AutoencoderKL = None
   scheduler: DDPMScheduler = None
-  ddim_scheduler: DDIMScheduler = None
+  imagen_scheduler: EulerDiscreteScheduler = None
 
   accelerator: Accelerator = None
   device = None
-  lr_scheduler = None
-  optimizer: bitsandbytes.optim.AdamW8bit = None
+
+  unet_lr_scheduler = None
+  te_lr_scheduler = None
+
+  unet_optimizer = None
+  te_optimizer = None
 
   raw_dataset_train: RawDataset = None
   raw_dataset_val: RawDataset = None
@@ -99,6 +135,7 @@ class DreamlikeTrainer:
   imagen: Imagen = None
   saver: Saver = None
   controller: Controller = None
+  validator: Validator = None
   modules = List = None
 
   _stop: bool = False
@@ -109,6 +146,10 @@ class DreamlikeTrainer:
     self.reporter_config = reporter_config
     self.imagen_config = imagen_config
     self.saver_config = saver_config
+
+    if self.config.optimizer == 'lion':
+      self.config.unet_lr *= self.config.lion_optimizer_lr_multiplier
+      self.config.te_lr *= self.config.lion_optimizer_lr_multiplier
 
     self.setup_run_dir()
     self.create_accelerator()
@@ -130,8 +171,9 @@ class DreamlikeTrainer:
     self.create_imagen()
     self.create_saver()
     self.create_controller()
+    self.create_validator()
 
-    self.modules = [self.reporter, self.imagen, self.saver, self.controller]
+    self.modules = [self.reporter, self.imagen, self.saver, self.controller, self.validator]
 
 
   def train_start(self):
@@ -162,8 +204,9 @@ class DreamlikeTrainer:
 
 
   def step_end(self, epoch: int, step: int, batch):
-    lr = self.lr_scheduler.get_last_lr()[0]
-    kwargs = { 'epoch': epoch, 'step': step, 'batch': batch, 'loss': self.last_loss, 'lr': lr, 'global_step': self.global_step }
+    unet_lr = self.unet_lr_scheduler.get_last_lr()[0]
+    te_lr = self.te_lr_scheduler.get_last_lr()[0]
+    kwargs = { 'epoch': epoch, 'step': step, 'batch': batch, 'loss': self.last_loss, 'unet_lr': unet_lr, 'te_lr': te_lr, 'global_step': self.global_step }
     for module in self.modules:
       module.step_end(**kwargs)
 
@@ -190,6 +233,9 @@ class DreamlikeTrainer:
       if self._stop:
         break
 
+      if self.config.shuffle_dataset_each_epoch:
+        self.raw_dataset_train.shuffle()
+
       self.epoch_end(epoch)
 
     self.train_end()
@@ -203,26 +249,43 @@ class DreamlikeTrainer:
 
   def step(self, step, batch):
     with self.accelerator.accumulate(self.unet), self.accelerator.accumulate(self.text_encoder):
-      noise_pred, ground_truth, timestep = train_utils.get_unet_pred_ground_truth(
-        batch=batch,
-        unet=self.unet,
-        text_encoder=self.text_encoder,
-        scheduler=self.scheduler,
-        clip_penultimate=self.config.clip_penultimate,
-        offset_noise_weight=self.config.offset_noise_weight,
-      )
-
-      loss = F.mse_loss(noise_pred.float(), ground_truth.float(), reduction='mean')
-      loss = loss * train_utils.get_snr_weight(timestep, self.scheduler, self.config.min_snr_gamma)
-      loss = loss.mean()
+      loss = self.calc_loss_fn(step, batch, 'train')
 
       self.accelerator.backward(loss)
       if self.accelerator.sync_gradients:
         self.accelerator.clip_grad_norm_(itertools.chain(self.unet.parameters(), self.text_encoder.parameters()), 1.0)
-      self.optimizer.step()
-      self.lr_scheduler.step()
-      self.optimizer.zero_grad()
+
+      self.unet_optimizer.step()
+      self.te_optimizer.step()
+
+      self.unet_lr_scheduler.step()
+      self.te_lr_scheduler.step()
+
+      self.unet_optimizer.zero_grad()
+      self.te_optimizer.zero_grad()
+
       self.last_loss = loss.item()
+
+
+  def calc_loss_fn(self, step, batch, mode='train'):
+    noise_pred, ground_truth, timestep = train_utils.get_unet_pred_ground_truth(
+      batch=batch,
+      unet=self.unet,
+      text_encoder=self.text_encoder,
+      scheduler=self.scheduler,
+      clip_penultimate=self.config.clip_penultimate,
+      offset_noise_weight=self.config.offset_noise_weight,
+    )
+
+    return train_utils.calc_unet_loss(
+      step=step,
+      noise_pred=noise_pred,
+      ground_truth=ground_truth,
+      timestep=timestep,
+      snr=self.config.snr if mode == 'train' else 0.0,
+      scheduler=self.scheduler,
+      snr_warmup_steps=self.config.snr_warmup_steps,
+    )
 
 
   def setup_run_dir(self):
@@ -254,7 +317,6 @@ class DreamlikeTrainer:
     self.reporter_config.total_steps = self.total_steps
     self.reporter_config.batch_size = self.config.batch_size
     self.reporter_config.run_dir = self.run_dir
-    self.reporter_config.lr_scheduler = self.lr_scheduler
     self.reporter = Reporter(self.reporter_config)
 
 
@@ -267,7 +329,7 @@ class DreamlikeTrainer:
     self.imagen_config.tokenizer = self.tokenizer
     self.imagen_config.raw_dataset = self.raw_dataset_train
     self.imagen_config.resolution = self.config.resolution
-    self.imagen_config.scheduler = self.ddim_scheduler
+    self.imagen_config.scheduler = self.imagen_scheduler
     self.imagen_config.accelerator = self.accelerator
     self.imagen = Imagen(self.imagen_config)
 
@@ -280,7 +342,7 @@ class DreamlikeTrainer:
     self.saver_config.unet = self.unet
     self.saver_config.text_encoder = self.text_encoder
     self.saver_config.tokenizer = self.tokenizer
-    self.saver_config.scheduler = self.ddim_scheduler
+    self.saver_config.scheduler = self.imagen_scheduler
     self.saver_config.accelerator = self.accelerator
     self.saver = Saver(self.saver_config)
 
@@ -290,27 +352,81 @@ class DreamlikeTrainer:
     self.controller = Controller(self)
 
 
+  def create_validator(self):
+    self.validator = Validator(ValidatorConfig(
+      seed=self.config.seed,
+      calc_loss_fn=self.calc_loss_fn,
+      dataloader=self.cached_dataloader_val,
+      reporter=self.reporter,
+      validate_every_n_minutes=self.config.validate_every_n_minutes,
+      validate_every_n_epochs=self.config.validate_every_n_epochs,
+      validate_every_n_steps=self.config.validate_every_n_steps,
+      validate_at_training_start=self.config.validate_at_training_start,
+      validate_at_training_end=self.config.validate_at_training_end,
+    ))
+
+
   def prepare_accelerator(self):
     with utils.Timer('accelerator.prepare'):
-      self.unet, self.text_encoder, self.optimizer, self.cached_dataloader_train, self.lr_scheduler = \
-        self.accelerator.prepare(self.unet, self.text_encoder, self.optimizer, self.cached_dataloader_train, self.lr_scheduler)
+      self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.cached_dataloader_val, self.unet_lr_scheduler, self.te_lr_scheduler = \
+        self.accelerator.prepare(self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.cached_dataloader_val, self.unet_lr_scheduler, self.te_lr_scheduler)
 
 
   def load_sd(self):
     sd = sd_utils.load_sd(self.config.pretrained_model_name_or_path, self.device, use_cache=self.config.cache_models)
     self.tokenizer, self.text_encoder, self.unet, self.vae, self.scheduler = sd
-    self.ddim_scheduler = DDIMScheduler.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='scheduler')
+    self.imagen_scheduler = EulerDiscreteScheduler.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='scheduler')
 
+
+  def get_optimizer(self, params_to_optimize, lr):
+    if self.config.optimizer == 'adam':
+      return bitsandbytes.optim.AdamW8bit(
+        params_to_optimize,
+        lr=lr,
+        betas=(self.config.adam_optimizer_beta_one, self.config.adam_optimizer_beta_two),
+        weight_decay=self.config.adam_optimizer_weight_decay
+      )
+    return Lion(
+      params_to_optimize,
+      lr=lr,
+      betas=(self.config.lion_optimizer_beta_one, self.config.lion_optimizer_beta_two),
+      weight_decay=self.config.lion_optimizer_weight_decay,
+    )
 
   def create_optimizer(self):
-    params_to_optimize = itertools.chain(self.unet.parameters(), self.text_encoder.parameters())
-    self.optimizer = bitsandbytes.optim.AdamW8bit(params_to_optimize, lr=self.config.lr, betas=(0.9, 0.999), weight_decay=1e-2)
+    self.unet_optimizer = self.get_optimizer(self.unet.parameters(), self.config.unet_lr)
+    self.te_optimizer = self.get_optimizer(self.text_encoder.parameters(), self.config.te_lr)
+
+
+  @staticmethod
+  def get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps: int, num_training_steps: int, num_cycles: int = 1, last_epoch: int = -1):
+    def lr_lambda(current_step):
+      if current_step < num_warmup_steps:
+        return float(current_step) / float(max(1, num_warmup_steps))
+      progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
+      if progress >= 1.0:
+        return 0.0
+      return max(0.0, 0.5 * (1.0 + math.cos(math.pi * ((float(num_cycles) * progress) % 1.0))))
+
+    return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
+  def get_lr_scheduler(self, name, optimizer, num_warmup_steps, num_training_steps, num_cycles):
+    if name != 'cosine_with_restarts':
+      return get_lr_scheduler(name=name, optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps)
+    return self.get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, num_cycles)
 
 
   def create_lr_scheduler(self):
-    self.lr_scheduler = get_lr_scheduler(
-      self.config.lr_scheduler, optimizer=self.optimizer, num_warmup_steps=self.config.lr_warmup_steps,
-      num_training_steps=self.config.epochs * len(self.cached_dataloader_train)
+    self.unet_lr_scheduler = self.get_lr_scheduler(
+      self.config.unet_lr_scheduler, optimizer=self.unet_optimizer, num_warmup_steps=self.config.unet_lr_warmup_steps,
+      num_training_steps=self.config.epochs * len(self.cached_dataloader_train),
+      num_cycles=self.config.epochs,
+    )
+    self.te_lr_scheduler = self.get_lr_scheduler(
+      self.config.te_lr_scheduler, optimizer=self.te_optimizer, num_warmup_steps=self.config.te_lr_warmup_steps,
+      num_training_steps=self.config.epochs * len(self.cached_dataloader_train),
+      num_cycles=self.config.epochs,
     )
 
 
@@ -326,6 +442,7 @@ class DreamlikeTrainer:
       batch_size=self.config.batch_size,
       seed=self.config.seed,
       type='train',
+      max_images=self.config.dataset_max_images,
       ignore_cache=self.config.ignore_cache,
     )
     val_dataset_config = RawDatasetConfig(**dataclasses.asdict(train_dataset_config))

@@ -5,7 +5,7 @@ import math
 import os
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPTextConfig
-from diffusers import AutoencoderKL, DDIMScheduler, StableDiffusionPipeline, UNet2DConditionModel
+from diffusers import AutoencoderKL, EulerDiscreteScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from safetensors.torch import load_file, save_file
 
 # DiffUsers版StableDiffusionのモデルパラメータ

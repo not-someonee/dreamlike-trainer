@@ -14,46 +14,24 @@ from accelerate import Accelerator
 
 class AverageMeter:
   def __init__(self, distance=10):
-    self.sum = 0
     self.values = []
     self.average = 0
     self.distance = distance
-    self.started_at = time.time()
 
   def reset(self):
-    self.sum = 0
+    self.values = []
     self.average = 0
-    self.started_at = time.time()
 
   def update(self, value):
-    self.sum += value
-    now = time.time()
-    diff = now - self.started_at
-    self.average = self.sum / diff
-
-
-# class AverageMeter:
-#   def __init__(self):
-#     self.sum = 0
-#     self.average = 0
-#     self.started_at = time.time()
-#
-#   def reset(self):
-#     self.sum = 0
-#     self.average = 0
-#     self.started_at = time.time()
-#
-#   def update(self, value):
-#     self.sum += value
-#     now = time.time()
-#     diff = now - self.started_at
-#     self.average = self.sum / diff
+    self.values.append(value)
+    if len(self.values) > self.distance:
+      self.values = self.values[1:]
+    self.average = sum(self.values) / len(self.values)
 
 
 @dataclass
 class ReporterConfig:
   accelerator: Accelerator = None
-  lr_scheduler = None
   epochs: int = None
   steps_per_epoch: int = None
   total_steps: int = None
@@ -74,6 +52,7 @@ class Reporter:
     self.global_step = 0
     self.step = 0
     self.epoch = 0
+    self.last_val_loss = 0
 
 
   def train_start(self):
@@ -99,7 +78,7 @@ class Reporter:
       self.epoch_progress.desc = 'Epoch ' + str(epoch) + ' steps'
 
 
-  def step_end(self, epoch: int, step: int, global_step: int, lr: float, batch, loss: float):
+  def step_end(self, epoch: int, step: int, global_step: int, unet_lr: float, te_lr: float, batch, loss: float):
     just_created = False
     if self.epochs_progress is None:
       just_created = True
@@ -141,11 +120,13 @@ class Reporter:
     self.total_steps_progress.set_postfix(**total_postfix)
 
     self.config.accelerator.log({
-      'imgs_per_sec': imgs_per_sec,
-      'megapx_per_sec': megapx_per_sec,
-      'steps_per_sec': steps_per_sec,
-      'lr': lr,
-      'loss': loss,
+      'perf/imgs_per_sec': imgs_per_sec,
+      'perf/megapx_per_sec': megapx_per_sec,
+      'perf/steps_per_sec': steps_per_sec,
+      'hyperparameter/lr_unet': unet_lr,
+      'hyperparameter/lr_te': te_lr,
+      'epoch_progress': float(step) / float(self.config.steps_per_epoch),
+      'loss/train': loss,
     }, step=global_step)
 
     epoch_postfix = {
@@ -153,7 +134,8 @@ class Reporter:
       'img/s': imgs_per_sec,
       'megapx/s': megapx_per_sec,
       'loss': loss,
-      'lr': lr,
+      'unet lr': unet_lr,
+      'te lr': te_lr,
     }
     self.epoch_progress.set_postfix(**epoch_postfix)
 
@@ -180,5 +162,8 @@ class Reporter:
       file.write(params_str)
 
 
-  def report_val(self):
-    pass
+  def report_val_loss(self, loss):
+    self.config.accelerator.log({ 'loss/val': loss }, step=self.global_step)
+    if self.last_val_loss != 0:
+      self.config.accelerator.log({ 'loss/val_diff': loss - self.last_val_loss }, step=self.global_step)
+    self.last_val_loss = loss
