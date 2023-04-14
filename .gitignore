@@ -18,6 +18,8 @@ lambda.private_ssh_key
 datasets
 models
 runs
+projects
+models_cache.txt
 
 # Editor directories and files
 .vscode/*
