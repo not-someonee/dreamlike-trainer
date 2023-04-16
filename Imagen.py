@@ -66,6 +66,7 @@ class ImagenConfig:
 class Imagen:
   pipe = None
   gen_id: int = 0
+  global_step: int = 0
   use_tome: bool = None
 
   def __init__(self, config: ImagenConfig):
@@ -74,10 +75,12 @@ class Imagen:
     self.last_gen_at = time.time()
 
   def train_start(self):
-    pass
+    if self.config.gen_on_training_start:
+      self.gen()
 
   def train_end(self):
-    pass
+    if self.config.gen_on_training_end:
+      self.gen()
 
   def epoch_start(self, epoch: int):
     pass
@@ -93,6 +96,7 @@ class Imagen:
     pass
 
   def step_end(self, epoch: int, step: int, global_step: int, unet_lr: float, te_lr: float, batch, loss: float):
+    self.global_step = global_step
     if (time.time() - self.last_gen_at) > (self.config.gen_every_n_minutes * 60.0):
       self.gen()
     if global_step != 0 and (global_step % self.config.gen_every_n_steps) == 0:
@@ -130,7 +134,7 @@ class Imagen:
       return []
 
     with isolate_rng():
-      random.seed(self.config.seed + self.gen_id)
+      random.seed(self.config.seed + self.global_step + 1)
       gens = []
       for i in range(self.config.num_gens_from_dataset):
         gen = GenParams(prompt=self.config.raw_dataset[random.randint(0, len(self.config.raw_dataset) - 1)].caption)
@@ -146,7 +150,7 @@ class Imagen:
 
   def set_default_gen_params(self, gens: List[GenParams]):
     with isolate_rng():
-      random.seed(self.config.seed + self.gen_id)
+      random.seed(self.config.seed + self.global_step)
       for gen in gens:
         if gen.seed is None or gen.seed == -1:
           gen.seed = self.config.seed
@@ -181,7 +185,7 @@ class Imagen:
         total_steps = 0
         for gen in gens:
           total_steps += gen.steps
-        with tqdm.tqdm(total=total_steps, desc='Imagen steps', unit=' steps') as progress_bar:
+        with tqdm.tqdm(total=total_steps * 2, desc='Imagen steps', unit=' steps') as progress_bar:
           images = []
           for i, gen in enumerate(gens):
             progress_bar.desc = f'{i}/{len(gens)} imgs done | Press C to cancel'
@@ -190,7 +194,7 @@ class Imagen:
             keys = keyboard_util.get_pressed_keys()
             if 'c' in keys:
               break
-          self.config.reporter.report_images(images, self.gen_id, gens)
+          self.config.reporter.report_images(images, '', self.gen_id, gens)
         print('\n', flush=True)
         print('\n', flush=True)
         print('\n', flush=True)

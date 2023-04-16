@@ -17,7 +17,8 @@ services:
       - models_cache:/workspace/models_cache
       - ./models_cache.txt:/workspace/models_cache.txt
       - ./models:/workspace/models
-      - ./projects:/workspace/projects
+      - ./configs:/workspace/configs
+      - ./runs:/workspace/runs
       - ./datasets:/workspace/datasets
       - docker_datasets:/workspace/docker_datasets
     deploy:

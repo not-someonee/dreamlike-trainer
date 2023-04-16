@@ -71,17 +71,20 @@ class Validator:
       print('\n\n', flush=True)
       torch.manual_seed(self.config.seed + 34573)
 
+      losses_with_snr = []
       losses = []
       with tqdm.tqdm(total=len(self.config.dataloader), desc='Validation', unit='it') as pbar:
         for step, batch in enumerate(self.config.dataloader):
-          loss = self.config.calc_loss_fn(step, batch, 'val').item()
-          losses.append(loss)
+          loss, loss_with_snr = self.config.calc_loss_fn(step, batch, 'val')
+          losses.append(loss.item())
+          losses_with_snr.append(loss_with_snr.item())
           pbar.update(1)
         pbar.close()
 
       average_loss = sum(losses) / len(losses)
+      average_loss_with_snr = sum(losses_with_snr) / len(losses_with_snr)
 
-      self.config.reporter.report_val_loss(average_loss)
+      self.config.reporter.report_val_loss(average_loss, average_loss_with_snr)
 
     self.last_val_at = time.time()
     print('\n\n', flush=True)

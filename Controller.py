@@ -12,7 +12,6 @@ from accelerate import Accelerator
 
 
 
-
 class Controller:
   def __init__(self, trainer):
     self.trainer = trainer

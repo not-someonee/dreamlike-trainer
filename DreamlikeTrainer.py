@@ -20,7 +20,6 @@ import math
 import os
 import itertools
 import shutil
-from datetime import datetime
 
 import torch
 from torch.utils.data import DataLoader
@@ -66,10 +65,12 @@ class DreamlikeTrainerConfig:
   unet_lr: float = 1e-6
   unet_lr_scheduler: Literal['constant', 'cosine', 'cosine_with_restarts'] = 'cosine_with_restarts'
   unet_lr_warmup_steps: int = 0
+  unet_lr_epochs: int = 0
 
   te_lr: float = 1e-6
   te_lr_scheduler: Literal['constant', 'cosine', 'cosine_with_restarts'] = 'cosine_with_restarts'
   te_lr_warmup_steps: int = 0
+  te_lr_epochs: int = 0
 
   optimizer: Literal['adam', 'lion'] = 'lion'
 
@@ -82,18 +83,19 @@ class DreamlikeTrainerConfig:
   lion_optimizer_beta_two: float = 0.99
   lion_optimizer_lr_multiplier: float = 0.2
 
+  use_snr: bool = True
   snr: float = 5.0
   snr_warmup_steps: int = 0
   resolution: int = 768
   precache_latents: bool = False
   ignore_cache: bool = False
-  project_dir: str = None
+  config_path: str = None
+  run_name: str = ''
 
 
 class DreamlikeTrainer:
   config: DreamlikeTrainerConfig = None
   run_name: str = None
-  project_name: str = None
   run_dir: str = None
 
   current_step: int = 0
@@ -249,7 +251,7 @@ class DreamlikeTrainer:
 
   def step(self, step, batch):
     with self.accelerator.accumulate(self.unet), self.accelerator.accumulate(self.text_encoder):
-      loss = self.calc_loss_fn(step, batch, 'train')
+      loss = self.calc_loss_fn(step, batch)
 
       self.accelerator.backward(loss)
       if self.accelerator.sync_gradients:
@@ -261,8 +263,8 @@ class DreamlikeTrainer:
       self.unet_lr_scheduler.step()
       self.te_lr_scheduler.step()
 
-      self.unet_optimizer.zero_grad()
-      self.te_optimizer.zero_grad()
+      self.unet_optimizer.zero_grad(set_to_none=True)
+      self.te_optimizer.zero_grad(set_to_none=True)
 
       self.last_loss = loss.item()
 
@@ -277,24 +279,27 @@ class DreamlikeTrainer:
       offset_noise_weight=self.config.offset_noise_weight,
     )
 
-    return train_utils.calc_unet_loss(
+    loss, loss_with_snr = train_utils.calc_unet_loss(
       step=step,
       noise_pred=noise_pred,
       ground_truth=ground_truth,
       timestep=timestep,
-      snr=self.config.snr if mode == 'train' else 0.0,
+      snr=self.config.snr,
+      use_snr=self.config.use_snr,
       scheduler=self.scheduler,
       snr_warmup_steps=self.config.snr_warmup_steps,
     )
 
+    if mode == 'train':
+      return loss_with_snr
+
+    return loss, loss_with_snr
 
   def setup_run_dir(self):
-    self.run_name = datetime.now().strftime('run_%Y-%m-%d_%H-%M-%S')
-    self.project_name = os.path.basename(self.config.project_dir)
-    self.run_dir = os.path.join(self.config.project_dir, 'runs', self.run_name)
-    os.makedirs(os.path.join(self.config.project_dir, 'runs'), exist_ok=True)
+    self.run_name = self.config.run_name
+    self.run_dir = os.path.join('./runs', self.run_name)
     os.makedirs(self.run_dir)
-    shutil.copyfile(os.path.join(self.config.project_dir, 'config.json5'), os.path.join(self.run_dir, 'config.json5'))
+    shutil.copyfile(self.config.config_path, os.path.join(self.run_dir, 'config.json5'))
     print('Run directory: ' + self.run_dir, flush=True)
 
 
@@ -304,7 +309,7 @@ class DreamlikeTrainer:
       gradient_accumulation_steps=1,
       mixed_precision='fp16',
       log_with='tensorboard',
-      project_dir=os.path.join(self.config.project_dir, 'runs'),
+      project_dir=os.path.abspath('./runs'),
     )
     self.accelerator.init_trackers(self.run_name, config={})
     self.device = self.accelerator.device
@@ -335,7 +340,7 @@ class DreamlikeTrainer:
 
 
   def create_saver(self):
-    self.saver_config.checkpoint_name = self.project_name
+    self.saver_config.checkpoint_name = self.run_name
     self.saver_config.pretrained_model_name_or_path = self.config.pretrained_model_name_or_path
     self.saver_config.save_dir = os.path.join(self.run_dir, 'models')
     self.saver_config.vae = self.vae
@@ -418,14 +423,17 @@ class DreamlikeTrainer:
 
 
   def create_lr_scheduler(self):
+    unet_epochs = self.config.unet_lr_epochs if self.config.unet_lr_epochs != 0 else self.config.epochs
+    te_epochs = self.config.te_lr_epochs if self.config.te_lr_epochs != 0 else self.config.epochs
+
     self.unet_lr_scheduler = self.get_lr_scheduler(
       self.config.unet_lr_scheduler, optimizer=self.unet_optimizer, num_warmup_steps=self.config.unet_lr_warmup_steps,
-      num_training_steps=self.config.epochs * len(self.cached_dataloader_train),
+      num_training_steps=unet_epochs * len(self.cached_dataloader_train),
       num_cycles=self.config.epochs,
     )
     self.te_lr_scheduler = self.get_lr_scheduler(
       self.config.te_lr_scheduler, optimizer=self.te_optimizer, num_warmup_steps=self.config.te_lr_warmup_steps,
-      num_training_steps=self.config.epochs * len(self.cached_dataloader_train),
+      num_training_steps= te_epochs * len(self.cached_dataloader_train),
       num_cycles=self.config.epochs,
     )
 

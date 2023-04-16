@@ -28,12 +28,12 @@ Dreamlike Trainer works on Windows and Linux with Nvidia GPUs with 24GB+ of VRAM
 ## Starting the Docker container
 
 #### Windows
-Run `./run.bat --project_dir ./runs/test` in the console
+Run `./run.bat --config_path ./runs/test` in the console
 
 **IMPORTANT:** Do NOT close the console, as it will kill the trainer.
 
 ## Development
 
 - Run `python docker_copy.py` to copy source code from your machine to the docker container
-- Run `python docker_copy.py && bash run.sh --build-up-dev --project_dir ./projects/test` to build the container from source, start the container, and start `train.py` inside of it
-- Run `python docker_copy.py && bash run.sh --dev --project_dir ./projects/test` to skip building the container and running `docker-compose up`. This will only start the `train.py` script
+- Run `python docker_copy.py && bash run.sh --build-up-dev --config_path ./projects/test` to build the container from source, start the container, and start `train.py` inside of it
+- Run `python docker_copy.py && bash run.sh --dev --config_path ./projects/test` to skip building the container and running `docker-compose up`. This will only start the `train.py` script

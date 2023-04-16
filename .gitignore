@@ -19,6 +19,7 @@ datasets
 models
 runs
 projects
+configs
 models_cache.txt
 
 # Editor directories and files

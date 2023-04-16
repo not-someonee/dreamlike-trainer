@@ -1,0 +1,197 @@
+// Note: This is a JSON5 file: https://json5.org/
+{
+  // Settings related to the trainer. Populates DreamlikeTrainerConfig class
+  trainer: {
+    // train_with_aesthetic_predictor: false,
+    // aesthetic_predictor_loss_weight: 10,
+
+    // Hugging face repo id: dreamlike-art/dreamlike-photoreal-2.0
+    // or a relative path (./models/stable-diffusion-1.5)
+    // or an absolute path C:/dreamlike-trainer/models/stable-diffusion-1.5
+    // Local paths must point to a directory with a stable diffusion model in the diffusers format
+    pretrained_model_name_or_path: './models/stable-diffusion-1.5',
+
+    // Cache models in models_cache directory? (Mounted as a models_cache volume in docker-compose.yml)
+    // Bind mounts (e.g. C:/models:/workspace/models) are super slow on windows
+    // This option saves the model in a docker volume for faster subsequent loading
+    cache_models: true,
+
+    // Path to the dataset directory. Actual images should be located in dataset_dir/data
+    // The list of files, image resolution, latents, and other things will be cached and saved in:
+    // dataset_dir/paths_cache.txt
+    // dataset_dir/meta/...
+    // dataset_dir/cache/...
+    //_
+    // !!!!!!!!!!
+    // IMPORTANT: If you've changed the training data, delete paths_cache.txt, meta/ and cache/ directories,
+    // or set trainer.ignore_cache to true. Otherwise, the trainer might use out of date training data.
+    // !!!!!!!!!!
+    //
+    dataset_dir: './docker_datasets/path_to_dataset',
+
+    dataset_max_images: 1500,
+
+    shuffle_dataset_each_epoch: true,
+
+    // Percent of the dataset that will be used for validation. More validation images -> longer validation
+    dataset_val_split: 0.25,
+
+    // Max number of validation images. Each image is run through the model only once, so it takes much less
+    // time compared to a standard SD image generation
+    dataset_max_val_images: 500,
+
+    validate_every_n_minutes: 99999,
+    validate_every_n_epochs: 999999,
+    validate_every_n_steps: 100,
+    validate_at_training_start: false,
+    validate_at_training_end: true,
+
+    // Set this to true to ignore the current dataset cache. A new cache will be generated.
+    // After one epoch (when the new cache is generated) this will automatically switch to false
+    ignore_cache: true,
+
+    // Training resolution. Recommended: 768px for SD 1.5, 768px - 1024px for SD 2.1
+    // Higher values greatly increase VRAM usage and training time
+    resolution: 512,
+
+    // Larger batch_size -> more vram needed
+    // 24GB VRAM (RTX 3090, 3090TI, 4090) will fit:
+    // - 768px at batch_size === 3
+    // - 512px at batch_size === 9
+    // - 640px at batch_size === 6
+    batch_size: 7,
+
+    // How much offset noise to add. Recommended values: 0.05 - 0.15
+    offset_noise_weight: 0.05,
+
+    // Conditional dropout factor, e.g. in what % of steps to train with an empty caption
+    cond_dropout: 0.05,
+
+    use_snr: true,
+    snr: 3.0,
+    snr_warmup_steps: 0,
+
+    // Shuffle parts of the captions separated by commas?
+    shuffle_captions: false,
+
+    // How many times to train through the training dataset
+    epochs: 20,
+
+    // Learning rate. Larger learning rate means that neural network learns faster,
+    // but too high of a learning rate will break things.
+    // Learning rate that is too small will lower the network learning speed thus wasting time.
+    // It's important to find a good balance between learning speed and tranining stability.
+    unet_lr: 2e-6,
+    te_lr: 1e-6,
+
+    unet_lr_scheduler: 'constant',// 'constant', 'linear', 'cosine', 'cosine_with_restarts'
+    te_lr_scheduler: 'constant',
+
+    unet_lr_warmup_steps: 0,
+    te_lr_warmup_steps: 0,
+
+    unet_lr_epochs: 0,
+    te_lr_epochs: 0,
+
+    optimizer: 'adam',
+
+    adam_optimizer_weight_decay: 1e-2,
+    adam_optimizer_beta_one: 0.9,
+    adam_optimizer_beta_two: 0.999,
+
+    lion_optimizer_weight_decay: 1e-2,
+    lion_optimizer_beta_one: 0.9,
+    lion_optimizer_beta_two: 0.99,
+    lion_optimizer_lr_multiplier: 0.25,
+
+    // Seed used for all random operations. Changing the seed WILL break dataset cache
+    seed: 42,
+
+    // Whether to use the clip penultimate layer or not
+    clip_penultimate: false,
+  },
+
+  // Settings related to logging, reporting and notifications: tensorboard, telegram notifications, etc.
+  reporter: {
+  },
+
+
+  // Settings related to model saving
+  saver: {
+    save_every_n_minutes: 60000,
+    save_every_n_epochs: 999,
+
+    // Safetensors load faster and are safe to use (.ckpt can contain viruses)
+    use_safetensors: true,
+
+    // Save compvis checkpoint (.ckpt or .safetensors) that can be used in auto1111 etc.
+    save_compvis_checkpoint: true,
+    use_safetensors_for_compvis: true,
+  },
+
+
+  // Settings related to image generation during training. Populates ImagenConfig class
+  imagen: {
+    // Enable imagen?
+    gen: true,
+
+    // Image generation interval in minutes
+    gen_every_n_minutes: 9999,
+
+    // Image generation interval in steps
+    gen_every_n_steps: 99999,
+
+    // Generate images at the end of every nth epoch
+    gen_every_n_epochs: 5,
+
+    // Whether to generate images on training start
+    gen_on_training_start: false,
+
+    // Whether to generate images on training end
+    gen_on_training_end: false,
+
+    // How many random prompts to gen from the dataset
+    num_gens_from_dataset: 10,
+
+    // Default steps, can be overriden in imagen.gens.steps for each gen
+    steps: 23,
+
+    // Default guidance scale to use, can be overriden in imagen.gens.scale for each gen
+    scale: 7.5,
+
+    // Default seed to use for all images. Set to -1 to use a random one each time.
+    // Can be overriden in imagen.gens.seed for each gen
+    seed: -1,
+
+    // Default aspect ratio (width divided by height)
+    // Can be overriden in imagen.gens.aspect_ratio for each gen
+    aspect_ratio: 0.75,
+
+    // Appended to the start of the prompt for each gen
+    prompt_prepend: '',
+
+    // Appended to the start of the negative prompt for each gen
+    negative_prompt_prepend: '',
+
+    // List of gens; add steps, seed, or aspect_ratio fields to override the default values
+    gens: [
+      { seed: 5, aspect_ratio: 0.75, prompt: 'a girl with rainbow hair, happy, soft eyes and narrow chin, dainty figure, long hair straight down, torn kawaii shirt and baggy jeans, In style of by Jordan Grimmer and greg rutkowski, crisp lines and color, dark cinematic lighting, digital art, hd, uhd, trending on artstation, extremely detailed' },
+      { seed: 6, aspect_ratio: 0.75, prompt: 'plague doctor closeup portrait, intricate, torn clothes, robe, arms at the sides, medieval times, year 1600, alchemy, crow mask, forest, elegant, grey mist, beautiful, highly detailed, dark dramatic lighting, sharp focus' },
+      { seed: 7, aspect_ratio: 0.75, prompt: 'handsome black genius hacking the metaverse, vr headset, white t - shirt and jordans, flying through spacetime, exploding nebulae, highly detailed, digital painting, artstation, concept art, smooth, sharp focus, illustration, art by wlop, mars ravelo and greg rutkowski' },
+      { seed: 8, aspect_ratio: 0.75, prompt: 'kneeling cat knight, portrait, finely detailed armor, intricate design, silver, silk, cinematic lighting, 4k' },
+    ],
+
+    // Token merging ratio for faster generation, but slightly lower quality
+    // Set to 0 to disable
+    //
+    // %	  Time (s/im)
+    // 0.0    3.09 (Baseline)
+    // 0.1    2.56 (1.21x faster)
+    // 0.2    2.29 (1.35x faster)
+    // 0.3    2.06 (1.50x faster)
+    // 0.4    1.85 (1.67x faster)
+    // 0.5    1.65 (1.87x faster)
+    // 0.6    1.52 (2.03x faster)
+    tome_ratio: 0.0,
+  },
+}

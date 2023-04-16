@@ -8,25 +8,55 @@ import dataclasses
 from PIL import Image
 import numpy as np
 import json5
+import math
 
 from accelerate import Accelerator
+
+
+def create_grid(images, grid_size):
+  width, height = images[0].size
+
+  grid_width = width * grid_size[0]
+  grid_height = height * grid_size[1]
+
+  grid_image = Image.new('RGB', (grid_width, grid_height))
+
+  for i in range(grid_size[1]):
+    for j in range(grid_size[0]):
+      image_idx = i * grid_size[0] + j
+      if image_idx < len(images):
+        grid_image.paste(images[image_idx], (j * width, i * height))
+      else:
+        break
+
+  return grid_image
+
+
+def get_grid_size(num_images, max_columns):
+  columns = min(num_images, max_columns)
+  rows = math.ceil(num_images / max_columns)
+  return columns, rows
 
 
 class AverageMeter:
   def __init__(self, distance=10):
     self.values = []
+    self.dates = []
     self.average = 0
     self.distance = distance
 
   def reset(self):
     self.values = []
+    self.dates = []
     self.average = 0
 
   def update(self, value):
     self.values.append(value)
+    self.dates.append(time.time())
     if len(self.values) > self.distance:
       self.values = self.values[1:]
-    self.average = sum(self.values) / len(self.values)
+      self.dates = self.dates[1:]
+    self.average = sum(self.values) / (time.time() - self.dates[0])
 
 
 @dataclass
@@ -49,6 +79,7 @@ class Reporter:
     self.config = config
     self.epoch_megapixels_average_meter = AverageMeter()
     self.total_megapixels_average_meter = AverageMeter()
+    self.loss_average_meter = AverageMeter()
     self.global_step = 0
     self.step = 0
     self.epoch = 0
@@ -91,6 +122,7 @@ class Reporter:
     self.epoch = epoch
     self.epoch_megapixels_average_meter.update(batch['megapixels'].item())
     self.total_megapixels_average_meter.update(batch['megapixels'].item())
+    self.loss_average_meter.update(loss)
     self.epochs_progress.update(0)
     self.total_steps_progress.update(1)
     self.epoch_progress.update(1)
@@ -119,32 +151,38 @@ class Reporter:
     }
     self.total_steps_progress.set_postfix(**total_postfix)
 
+    if len(self.total_megapixels_average_meter.values) == self.total_megapixels_average_meter.distance:
+      self.config.accelerator.log({
+        'perf/megapx_per_sec': megapx_per_sec,
+        'perf/imgs_per_sec': imgs_per_sec,
+        'perf/steps_per_sec': steps_per_sec,
+      }, step=global_step)
+
     self.config.accelerator.log({
-      'perf/imgs_per_sec': imgs_per_sec,
-      'perf/megapx_per_sec': megapx_per_sec,
-      'perf/steps_per_sec': steps_per_sec,
       'hyperparameter/lr_unet': unet_lr,
       'hyperparameter/lr_te': te_lr,
+      'epoch': epoch,
       'epoch_progress': float(step) / float(self.config.steps_per_epoch),
       'loss/train': loss,
+      'loss/train_avg': self.loss_average_meter.average,
     }, step=global_step)
 
     epoch_postfix = {
       'img done': f'{imgs_done}/{imgs}',
       'img/s': imgs_per_sec,
       'megapx/s': megapx_per_sec,
-      'loss': loss,
+      'loss': self.loss_average_meter.average,
       'unet lr': unet_lr,
       'te lr': te_lr,
     }
     self.epoch_progress.set_postfix(**epoch_postfix)
 
 
-  def report_images(self, images: List[Any], gen_id: int, params: List[Any]):
+  def report_images(self, images: List[Any], prefix: str, gen_id: int, params: List[Any]):
     gens_dir = os.path.join(self.config.run_dir, 'gens')
     os.makedirs(gens_dir, exist_ok=True)
 
-    gen_dir = os.path.join(gens_dir, str(gen_id))
+    gen_dir = os.path.join(gens_dir, 'step_' + str(self.global_step))
     os.makedirs(gen_dir, exist_ok=True)
 
     # images_np = [np.array(img) for img in images]
@@ -152,8 +190,13 @@ class Reporter:
     # images_np = images_np.transpose(0, 3, 1, 2)
     # self.config.accelerator.get_tracker('tensorboard').add_images('images', images_np, global_step=self.global_step)
 
+    grid = create_grid(images, get_grid_size(len(images), 7))
+
+    grid_save_path = os.path.join(gen_dir, 'grid_' + prefix + os.path.basename(self.config.run_dir) + '.jpg')
+    grid.save(grid_save_path, 'JPEG', quality=98)
+
     for i, image in enumerate(images):
-      save_path = os.path.join(gen_dir, str(i) + '.jpg')
+      save_path = os.path.join(gen_dir, prefix + str(i) + '.jpg')
       image.save(save_path, 'JPEG', quality=98)
 
     params_path = os.path.join(gen_dir, 'params.txt')
@@ -162,8 +205,9 @@ class Reporter:
       file.write(params_str)
 
 
-  def report_val_loss(self, loss):
-    self.config.accelerator.log({ 'loss/val': loss }, step=self.global_step)
-    if self.last_val_loss != 0:
-      self.config.accelerator.log({ 'loss/val_diff': loss - self.last_val_loss }, step=self.global_step)
+  def report_val_loss(self, loss, loss_with_snr):
+    self.config.accelerator.log({
+      'loss/val': loss_with_snr,
+      'loss/val_no_snr': loss,
+    }, step=self.global_step)
     self.last_val_loss = loss

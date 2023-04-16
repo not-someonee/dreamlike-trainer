@@ -172,8 +172,7 @@ class RawDataset(Dataset):
     if not config.ignore_cache and os.path.isfile(paths_cache_path):
       with open(paths_cache_path, 'r', encoding='utf-8') as file:
         max_images = file.readline().strip()
-        seed = file.readline().strip()
-        if max_images == config.max_images and seed == config.seed:
+        if max_images == config.max_images:
           paths = [line.strip() for line in file]
           if config.max_images != 0 and len(paths) > config.max_images:
             paths = paths[:config.max_images]
@@ -185,13 +184,12 @@ class RawDataset(Dataset):
       paths = [p for p in paths if p.endswith(('jpg', 'jpeg', 'png', 'webp'))]
       if config.max_images != 0 and len(paths) > config.max_images:
         paths = paths[:config.max_images]
-      random.Random(config.seed).shuffle(paths)
       with open(paths_cache_path, 'w+', encoding='utf-8') as file:
         file.write(str(config.max_images) + '\n')
-        file.write(str(config.seed) + '\n')
         for path in paths:
           file.write(path.replace('\\', '/') + '\n')
 
+    random.Random(config.seed).shuffle(paths)
 
     if isclose(config.val_split, 0.0, abs_tol=0.001):
       return paths

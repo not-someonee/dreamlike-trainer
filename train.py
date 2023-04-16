@@ -7,21 +7,19 @@ import utils
 import json5
 import argparse
 import os
+from datetime import datetime
 
 def get_args():
   parser = argparse.ArgumentParser()
-  parser.add_argument('--project_dir', type=str, required=True, help='Path to the project directory. Must contain config.json5 file containing training parameters.')
+  parser.add_argument('--config_path', type=str, required=True)
   return parser.parse_args()
 
 
 def main():
   args = get_args()
-  print('Loading project ' + args.project_dir, flush=True)
 
-  config_path = os.path.join(args.project_dir, 'config.json5')
-
-  print('Loading config from ' + config_path, flush=True)
-  with open(config_path, 'r') as file:
+  print('Loading config from ' + args.config_path, flush=True)
+  with open(args.config_path, 'r') as file:
     json_config = json5.loads(file.read())
 
   print('', flush=True)
@@ -43,10 +41,16 @@ def main():
   print(json5.dumps(json_config['imagen'], indent=2), flush=True)
   print('', flush=True)
 
-  trainer_config = DreamlikeTrainerConfig(**json_config['trainer'], project_dir=args.project_dir)
+  if 'run_name' not in json_config['trainer']:
+    json_config['trainer']['run_name'] = os.path.basename(args.config_path).rsplit('.', 1)[0]
+
+  json_config['trainer']['run_name'] += '__' + datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
+  trainer_config = DreamlikeTrainerConfig(**json_config['trainer'], config_path=args.config_path)
   reporter_config = ReporterConfig(**json_config['reporter'])
   imagen_config = ImagenConfig(**json_config['imagen'])
   saver_config = SaverConfig(**json_config['saver'])
+
 
   with utils.Timer('Initializing trainer'):
     trainer = DreamlikeTrainer(trainer_config, reporter_config, imagen_config, saver_config)

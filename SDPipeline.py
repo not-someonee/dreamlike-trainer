@@ -35,7 +35,7 @@ from diffusers.schedulers import (
 from diffusers.utils import deprecate, logging
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-
+from math import isclose
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -376,7 +376,7 @@ class SDPipeline(DiffusionPipeline):
                 f" {type(callback_steps)}."
             )
 
-    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
+    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, offset_noise_weight, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
@@ -395,7 +395,11 @@ class SDPipeline(DiffusionPipeline):
                 ]
                 latents = torch.cat(latents, dim=0).to(device)
             else:
-                latents = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(device)
+                latents = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype)
+                if not isclose(offset_noise_weight, 0.0, abs_tol=0.001):
+                    latents += (offset_noise_weight * torch.randn(latents.shape[0], latents.shape[1], 1, 1).to(device))
+                    latents += 0.1 * torch.randn_like(latents)
+                # latents = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(device)
         else:
             if latents.shape != shape:
                 raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
@@ -422,6 +426,7 @@ class SDPipeline(DiffusionPipeline):
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: Optional[int] = 1,
+        offset_noise_weight: float = 0.0,
     ):
         r"""
         Function invoked when calling the pipeline for generation.
@@ -511,6 +516,7 @@ class SDPipeline(DiffusionPipeline):
             text_embeddings.dtype,
             device,
             generator,
+            offset_noise_weight,
             latents,
         )
 

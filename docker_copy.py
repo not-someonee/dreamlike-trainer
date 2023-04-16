@@ -2,7 +2,7 @@ import os
 
 files = [
   # 'setup_env.py',
-  # 'train.py',
+  'train.py',
   'Validator.py',
   'Controller.py',
   'train_utils.py',
@@ -15,7 +15,7 @@ files = [
   # 'CachedDataset.py',
   # 'bucketing_utils.py',
   'Reporter.py',
-  # 'Imagen.py',
+  'Imagen.py',
   # 'bcolors.py',
   'Saver.py',
   # 'utils.py',
