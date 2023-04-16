@@ -175,6 +175,10 @@ class Imagen:
 
   @torch.no_grad()
   def gen(self):
+    if not self.config.accelerator.is_main_process:
+      self.config.accelerator.wait_for_everyone()
+      return
+
     print('\n\n\n', flush=True)
     with utils.Timer('Generating images'):
       self.prepare_for_gen()

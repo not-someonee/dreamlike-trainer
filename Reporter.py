@@ -99,9 +99,10 @@ class Reporter:
 
 
   def epoch_end(self, epoch: int):
-    self.epochs_progress.update(1)
-    self.epoch_progress.reset()
-    self.total_megapixels_average_meter.reset()
+    if self.config.accelerator.is_main_process:
+      self.epochs_progress.update(1)
+      self.epoch_progress.reset()
+      self.total_megapixels_average_meter.reset()
 
 
   def step_start(self, epoch: int, step: int):
@@ -110,6 +111,9 @@ class Reporter:
 
 
   def step_end(self, epoch: int, step: int, global_step: int, unet_lr: float, te_lr: float, batch, loss: float):
+    if not self.config.accelerator.is_main_process:
+      return
+    
     just_created = False
     if self.epochs_progress is None:
       just_created = True
@@ -130,18 +134,18 @@ class Reporter:
     if just_created:
       return
 
-    batch_size = self.config.batch_size
+    actual_batch_size = self.config.batch_size * self.config.accelerator.num_processes
 
     total_steps_per_sec = float(self.total_steps_progress.format_dict['rate'])
-    total_imgs_done = global_step * batch_size
-    total_imgs = self.config.total_steps * batch_size
-    total_imgs_per_sec = total_steps_per_sec * batch_size
+    total_imgs_done = global_step * actual_batch_size
+    total_imgs = self.config.total_steps * actual_batch_size
+    total_imgs_per_sec = total_steps_per_sec * actual_batch_size
     total_megapx_per_sec = self.total_megapixels_average_meter.average
 
     steps_per_sec = float(self.epoch_progress.format_dict['rate'])
-    imgs_done = step * batch_size
-    imgs = self.config.steps_per_epoch * batch_size
-    imgs_per_sec = steps_per_sec * batch_size
+    imgs_done = step * actual_batch_size
+    imgs = self.config.steps_per_epoch * actual_batch_size
+    imgs_per_sec = steps_per_sec * actual_batch_size
     megapx_per_sec = self.epoch_megapixels_average_meter.average
 
     total_postfix = {
@@ -171,7 +175,6 @@ class Reporter:
       'img done': f'{imgs_done}/{imgs}',
       'img/s': imgs_per_sec,
       'megapx/s': megapx_per_sec,
-      'loss': self.loss_average_meter.average,
       'unet lr': unet_lr,
       'te lr': te_lr,
     }
@@ -206,8 +209,9 @@ class Reporter:
 
 
   def report_val_loss(self, loss, loss_with_snr):
-    self.config.accelerator.log({
-      'loss/val': loss_with_snr,
-      'loss/val_no_snr': loss,
-    }, step=self.global_step)
-    self.last_val_loss = loss
+    if self.config.accelerator.is_main_process:
+      self.config.accelerator.log({
+        'loss/val': loss_with_snr,
+        'loss/val_no_snr': loss,
+      }, step=self.global_step)
+      self.last_val_loss = loss

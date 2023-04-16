@@ -10,6 +10,7 @@ import time
 import torch
 from torch.utils.data import DataLoader
 from pytorch_lightning.utilities.seed import isolate_rng
+from accelerate import Accelerator
 
 
 @dataclass
@@ -19,6 +20,7 @@ class ValidatorConfig:
   reporter: Reporter = None
   seed: int = None
 
+  accelerator: Accelerator = None
   validate_every_n_minutes: int = 30
   validate_every_n_epochs: int = 99999999
   validate_every_n_steps: int = 99999999
@@ -73,11 +75,12 @@ class Validator:
 
       losses_with_snr = []
       losses = []
-      with tqdm.tqdm(total=len(self.config.dataloader), desc='Validation', unit='it') as pbar:
+      with tqdm.tqdm(total=len(self.config.dataloader), desc='Validation', unit='it', disable=not self.config.accelerator.is_main_process) as pbar:
         for step, batch in enumerate(self.config.dataloader):
           loss, loss_with_snr = self.config.calc_loss_fn(step, batch, 'val')
-          losses.append(loss.item())
-          losses_with_snr.append(loss_with_snr.item())
+          loss, loss_with_snr = self.config.accelerator.gather_for_metrics((loss, loss_with_snr))
+          losses.append(loss.mean().item())
+          losses_with_snr.append(loss_with_snr.mean().item())
           pbar.update(1)
         pbar.close()
 

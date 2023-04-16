@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import gc
 import math
 import os
+import builtins
 import itertools
 import shutil
 
@@ -32,7 +33,7 @@ from lion_pytorch import Lion
 from torch.optim.lr_scheduler import LambdaLR
 
 from accelerate import Accelerator
-from accelerate.utils import set_seed
+from accelerate.utils import set_seed, broadcast_object_list
 
 import bitsandbytes
 
@@ -45,6 +46,7 @@ class DreamlikeTrainerConfig:
   cache_models: bool = True
   epochs: int = 4
   batch_size: int = 3
+  gradient_accumulation_steps: int = 2
   seed: int = 42
   clip_penultimate: bool = False
   cond_dropout: float = 0.1
@@ -153,16 +155,17 @@ class DreamlikeTrainer:
       self.config.unet_lr *= self.config.lion_optimizer_lr_multiplier
       self.config.te_lr *= self.config.lion_optimizer_lr_multiplier
 
-    self.setup_run_dir()
     self.create_accelerator()
+    self.setup_run_dir()
 
     self.load_sd()
 
     set_seed(config.seed)
 
-    self.load_raw_datasets()
-    self.load_cached_datasets()
-    self.load_cached_dataloaders()
+    with self.accelerator.main_process_first():
+      self.load_raw_datasets()
+      self.load_cached_datasets()
+      self.load_cached_dataloaders()
 
     self.create_optimizer()
     self.create_lr_scheduler()
@@ -296,22 +299,30 @@ class DreamlikeTrainer:
     return loss, loss_with_snr
 
   def setup_run_dir(self):
-    self.run_name = self.config.run_name
-    self.run_dir = os.path.join('./runs', self.run_name)
-    os.makedirs(self.run_dir)
-    shutil.copyfile(self.config.config_path, os.path.join(self.run_dir, 'config.json5'))
+    self.run_dir = os.path.join('./runs', self.config.run_name)
+    if self.accelerator.is_main_process:
+      os.makedirs(self.run_dir, exist_ok=True)
+      shutil.copyfile(self.config.config_path, os.path.join(self.run_dir, 'config.json5'))
     print('Run directory: ' + self.run_dir, flush=True)
 
 
   def create_accelerator(self):
     # noinspection PyArgumentList
     self.accelerator = Accelerator(
-      gradient_accumulation_steps=1,
+      gradient_accumulation_steps=self.config.gradient_accumulation_steps,
       mixed_precision='fp16',
       log_with='tensorboard',
       project_dir=os.path.abspath('./runs'),
     )
-    self.accelerator.init_trackers(self.run_name, config={})
+    original_print = builtins.print
+    def print_fn(*args, ** kwargs):
+      if self.accelerator.is_main_process:
+        original_print(*args, ** kwargs)
+    builtins.print = print_fn
+    self.config.run_name = broadcast_object_list([self.config.run_name])[0]
+    self.config.unet_lr *= self.accelerator.num_processes
+    self.config.te_lr *= self.accelerator.num_processes
+    self.accelerator.init_trackers(self.config.run_name, config={})
     self.device = self.accelerator.device
 
 
@@ -340,7 +351,7 @@ class DreamlikeTrainer:
 
 
   def create_saver(self):
-    self.saver_config.checkpoint_name = self.run_name
+    self.saver_config.checkpoint_name = self.config.run_name
     self.saver_config.pretrained_model_name_or_path = self.config.pretrained_model_name_or_path
     self.saver_config.save_dir = os.path.join(self.run_dir, 'models')
     self.saver_config.vae = self.vae
@@ -363,6 +374,7 @@ class DreamlikeTrainer:
       calc_loss_fn=self.calc_loss_fn,
       dataloader=self.cached_dataloader_val,
       reporter=self.reporter,
+      accelerator=self.accelerator,
       validate_every_n_minutes=self.config.validate_every_n_minutes,
       validate_every_n_epochs=self.config.validate_every_n_epochs,
       validate_every_n_steps=self.config.validate_every_n_steps,
@@ -375,6 +387,8 @@ class DreamlikeTrainer:
     with utils.Timer('accelerator.prepare'):
       self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.cached_dataloader_val, self.unet_lr_scheduler, self.te_lr_scheduler = \
         self.accelerator.prepare(self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.cached_dataloader_val, self.unet_lr_scheduler, self.te_lr_scheduler)
+    self.steps_per_epoch = len(self.cached_dataloader_train)
+    self.total_steps = self.steps_per_epoch * self.config.epochs
 
 
   def load_sd(self):
@@ -470,7 +484,4 @@ class DreamlikeTrainer:
 
     self.cached_dataloader_train = DataLoader(self.cached_dataset_train, batch_size=self.config.batch_size, shuffle=False, collate_fn=collate_fn)
     self.cached_dataloader_val = DataLoader(self.cached_dataset_val, batch_size=self.config.batch_size, shuffle=False, collate_fn=collate_fn)
-
-    self.steps_per_epoch = len(self.cached_dataloader_train)
-    self.total_steps = self.steps_per_epoch * self.config.epochs
 

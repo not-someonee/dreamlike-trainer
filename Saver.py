@@ -81,6 +81,10 @@ class Saver:
 
 
   def save(self):
+    if not self.config.accelerator.is_main_process:
+      self.config.accelerator.wait_for_everyone()
+      return
+
     self.last_saved_at = time.time()
     save_path = os.path.join(self.config.save_dir, self.get_checkpoint_name())
     saving_utils.save_sd(

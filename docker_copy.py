@@ -21,7 +21,7 @@ files = [
   # 'utils.py',
   # 'saving_utils.py',
   # 'train_utils.py',
-  # 'accelerate_config.yml',
+  'accelerate_config.yml',
 ]
 directories = []  # path/to/dir
 

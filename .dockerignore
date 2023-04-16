@@ -8,6 +8,7 @@ logs/**/*
 datasets
 models
 projects
+runs
 
 npm-debug.log*
 yarn-debug.log*

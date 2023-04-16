@@ -49,6 +49,9 @@ class Controller:
 
 
   def check_keypresses(self):
+    if not self.trainer.accelerator.is_main_process:
+      return
+
     keys = get_pressed_keys()
 
     if 'w' in keys:
@@ -100,6 +103,9 @@ class Controller:
 
 
   def print_help(self):
+    if not self.trainer.accelerator.is_main_process:
+      return
+
     self.last_printed_help_at = time.time()
     print('\n\n', flush=True)
     print('\n\n', flush=True)

@@ -1,6 +1,6 @@
 # Dreamlike Trainer
 
-Opinionated Stable Diffusion trainer made for large-scale finetunes (Thousands, millions of images).  
+Stable Diffusion trainer made for large-scale finetunes (Thousands, millions of images).  
 
 ## Features
 
