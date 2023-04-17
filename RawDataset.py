@@ -9,6 +9,8 @@ from PIL import Image
 
 from torch.utils.data import Dataset
 from torchvision import transforms
+from accelerate import Accelerator
+
 import safetensors
 import bucketing_utils
 import utils
@@ -109,6 +111,7 @@ class RawDatasetConfig:
   val_split: float = 0.1
   max_images: int = 0
   max_val_images: int = 500
+  accelerator: Accelerator = None
 
 
 

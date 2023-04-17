@@ -189,7 +189,7 @@ class Imagen:
         total_steps = 0
         for gen in gens:
           total_steps += gen.steps
-        with tqdm.tqdm(total=total_steps * 2, desc='Imagen steps', unit=' steps') as progress_bar:
+        with tqdm.tqdm(total=total_steps, desc='Imagen steps', unit=' steps') as progress_bar:
           images = []
           for i, gen in enumerate(gens):
             progress_bar.desc = f'{i}/{len(gens)} imgs done | Press C to cancel'

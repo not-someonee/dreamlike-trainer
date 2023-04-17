@@ -12,7 +12,7 @@ files = [
   # 'saving_utils.py',
   'DreamlikeTrainer.py',
   'RawDataset.py',
-  # 'CachedDataset.py',
+  'CachedDataset.py',
   # 'bucketing_utils.py',
   'Reporter.py',
   'Imagen.py',

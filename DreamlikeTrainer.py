@@ -19,6 +19,7 @@ import gc
 import math
 import os
 import builtins
+import tqdm
 import itertools
 import shutil
 
@@ -162,10 +163,17 @@ class DreamlikeTrainer:
 
     set_seed(config.seed)
 
-    with self.accelerator.main_process_first():
-      self.load_raw_datasets()
-      self.load_cached_datasets()
-      self.load_cached_dataloaders()
+    if not self.accelerator.is_main_process:
+      self.accelerator.wait_for_everyone()
+    self.load_raw_datasets()
+    self.load_cached_datasets()
+    self.load_cached_dataloaders()
+    if self.accelerator.is_main_process:
+      self.accelerator.wait_for_everyone()
+
+    if self.config.precache_latents:
+      self.cached_dataset_train.precache()
+      self.cached_dataset_val.precache()
 
     self.create_optimizer()
     self.create_lr_scheduler()
@@ -464,11 +472,14 @@ class DreamlikeTrainer:
       batch_size=self.config.batch_size,
       seed=self.config.seed,
       type='train',
+      accelerator=None,
       max_images=self.config.dataset_max_images,
       ignore_cache=self.config.ignore_cache,
     )
     val_dataset_config = RawDatasetConfig(**dataclasses.asdict(train_dataset_config))
     val_dataset_config.type = 'val'
+    val_dataset_config.accelerator = self.accelerator
+    train_dataset_config.accelerator = self.accelerator
 
     self.raw_dataset_train = RawDataset(train_dataset_config)
     self.raw_dataset_val = RawDataset(val_dataset_config)

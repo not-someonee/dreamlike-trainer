@@ -5,6 +5,7 @@ import time
 
 import torch
 import torch.nn as nn
+import tqdm
 from torch.utils.data import Dataset
 from transformers import CLIPTextModel, CLIPTokenizer
 from diffusers import AutoencoderKL
@@ -52,8 +53,25 @@ class CachedDataset(Dataset):
     return self.raw_dataset.__len__()
 
 
+  def precache(self):
+    with tqdm.tqdm(total=self.__len__(), desc='Caching latents', disable=not self.raw_config.accelerator.is_main_process, maxinterval=0.1) as pbar:
+      for i in range(self.__len__()):
+        if i % (self.raw_config.accelerator.process_index + 1) == 0:
+          self.___getitem___(i, precache=True)
+        pbar.update(1)
+        pbar.refresh()
+    if self.raw_dataset.config.ignore_cache:
+      self.raw_dataset.config.ignore_cache = False
+      print('Recalculated cache, switching ignore_cache to False')
+
+
   @torch.no_grad()
   def __getitem__(self, index):
+    return self.___getitem___(index, precache=False)
+
+
+  @torch.no_grad()
+  def ___getitem___(self, index, precache=False):
     cache_dir = os.path.join(self.raw_config.directory, 'cache')
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -64,6 +82,8 @@ class CachedDataset(Dataset):
     cache_tensor_path = os.path.join(cache_dir, filename + '.safetensors')
 
     if os.path.isfile(cache_tensor_path) and not self.raw_config.ignore_cache:
+      if precache:
+        return
       cache = {}
       with safetensors.safe_open(cache_tensor_path, framework='pt') as f:
         for key in f.keys():
