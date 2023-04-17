@@ -175,39 +175,38 @@ class Imagen:
 
   @torch.no_grad()
   def gen(self):
-    if not self.config.accelerator.is_main_process:
-      self.config.accelerator.wait_for_everyone()
-      return
-
-    print('\n\n\n', flush=True)
-    with utils.Timer('Generating images'):
-      self.prepare_for_gen()
-      try:
-        gens = self.get_gens_from_dataset()
-        gens.extend(self.get_gens_from_config())
-        self.set_default_gen_params(gens)
-        total_steps = 0
-        for gen in gens:
-          total_steps += gen.steps
-        with tqdm.tqdm(total=total_steps, desc='Imagen steps', unit=' steps') as progress_bar:
-          images = []
-          for i, gen in enumerate(gens):
-            progress_bar.desc = f'{i}/{len(gens)} imgs done | Press C to cancel'
-            image = self.gen_img(gen, progress_bar)
-            images.append(image)
-            keys = keyboard_util.get_pressed_keys()
-            if 'c' in keys:
-              break
-          self.config.reporter.report_images(images, '', self.gen_id, gens)
-        print('\n', flush=True)
-        print('\n', flush=True)
-        print('\n', flush=True)
-      except Exception:
-        traceback.print_exc()
-      finally:
-        self.prepare_for_train()
-        self.gen_id += 1
-        self.last_gen_at = time.time()
+    utils.garbage_collect()
+    if self.config.accelerator.is_main_process:
+      print('\n\n\n', flush=True)
+      with utils.Timer('Generating images'):
+        self.prepare_for_gen()
+        try:
+          gens = self.get_gens_from_dataset()
+          gens.extend(self.get_gens_from_config())
+          self.set_default_gen_params(gens)
+          total_steps = 0
+          for gen in gens:
+            total_steps += gen.steps
+          with tqdm.tqdm(total=total_steps, desc='Imagen steps', unit=' steps') as progress_bar:
+            images = []
+            for i, gen in enumerate(gens):
+              progress_bar.desc = f'{i}/{len(gens)} imgs done | Press C to cancel'
+              image = self.gen_img(gen, progress_bar)
+              images.append(image)
+              keys = keyboard_util.get_pressed_keys()
+              if 'c' in keys:
+                break
+            self.config.reporter.report_images(images, '', self.gen_id, gens)
+          print('\n', flush=True)
+          print('\n', flush=True)
+          print('\n', flush=True)
+        except Exception:
+          traceback.print_exc()
+        finally:
+          self.prepare_for_train()
+          self.gen_id += 1
+          self.last_gen_at = time.time()
+      utils.garbage_collect()
 
 
   @torch.no_grad()

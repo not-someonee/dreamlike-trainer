@@ -124,8 +124,8 @@ class Reporter:
     self.global_step = global_step
     self.step = step
     self.epoch = epoch
-    self.epoch_megapixels_average_meter.update(batch['megapixels'].item())
-    self.total_megapixels_average_meter.update(batch['megapixels'].item())
+    self.epoch_megapixels_average_meter.update(batch['megapixels'])
+    self.total_megapixels_average_meter.update(batch['megapixels'])
     self.loss_average_meter.update(loss)
     self.epochs_progress.update(0)
     self.total_steps_progress.update(1)

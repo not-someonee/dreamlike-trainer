@@ -249,6 +249,7 @@ class DreamlikeTrainer:
       if self.config.shuffle_dataset_each_epoch:
         self.raw_dataset_train.shuffle()
 
+      utils.garbage_collect()
       self.epoch_end(epoch)
 
     self.train_end()
@@ -262,7 +263,7 @@ class DreamlikeTrainer:
 
   def step(self, step, batch):
     with self.accelerator.accumulate(self.unet), self.accelerator.accumulate(self.text_encoder):
-      loss = self.calc_loss_fn(step, batch)
+      loss = self.calc_loss_fn(step, batch, self.unet, self.text_encoder)
 
       self.accelerator.backward(loss)
       if self.accelerator.sync_gradients:
@@ -280,11 +281,11 @@ class DreamlikeTrainer:
       self.last_loss = loss.item()
 
 
-  def calc_loss_fn(self, step, batch, mode='train'):
+  def calc_loss_fn(self, step, batch, unet, text_encoder, mode='train'):
     noise_pred, ground_truth, timestep = train_utils.get_unet_pred_ground_truth(
       batch=batch,
-      unet=self.unet,
-      text_encoder=self.text_encoder,
+      unet=unet,
+      text_encoder=text_encoder,
       scheduler=self.scheduler,
       clip_penultimate=self.config.clip_penultimate,
       offset_noise_weight=self.config.offset_noise_weight,
@@ -382,6 +383,8 @@ class DreamlikeTrainer:
       calc_loss_fn=self.calc_loss_fn,
       dataloader=self.cached_dataloader_val,
       reporter=self.reporter,
+      unet=self.unet,
+      text_encoder=self.text_encoder,
       accelerator=self.accelerator,
       validate_every_n_minutes=self.config.validate_every_n_minutes,
       validate_every_n_epochs=self.config.validate_every_n_epochs,
@@ -393,8 +396,8 @@ class DreamlikeTrainer:
 
   def prepare_accelerator(self):
     with utils.Timer('accelerator.prepare'):
-      self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.cached_dataloader_val, self.unet_lr_scheduler, self.te_lr_scheduler = \
-        self.accelerator.prepare(self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.cached_dataloader_val, self.unet_lr_scheduler, self.te_lr_scheduler)
+      self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.unet_lr_scheduler, self.te_lr_scheduler = \
+        self.accelerator.prepare(self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.unet_lr_scheduler, self.te_lr_scheduler)
     self.steps_per_epoch = len(self.cached_dataloader_train)
     self.total_steps = self.steps_per_epoch * self.config.epochs
 

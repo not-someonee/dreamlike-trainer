@@ -29,6 +29,8 @@ class CachedDataset(Dataset):
     self.raw_config = config.raw_dataset.config
     self.device = self.raw_config.device
     self.getitem_call_num = 0
+    cache_dir = os.path.join(self.raw_config.directory, 'cache')
+    os.makedirs(cache_dir, exist_ok=True)
 
 
   @staticmethod
@@ -73,7 +75,6 @@ class CachedDataset(Dataset):
   @torch.no_grad()
   def ___getitem___(self, index, precache=False):
     cache_dir = os.path.join(self.raw_config.directory, 'cache')
-    os.makedirs(cache_dir, exist_ok=True)
 
     data_item: RawDataItem = self.config.raw_dataset.__getitem__(index)
 
@@ -81,7 +82,7 @@ class CachedDataset(Dataset):
     filename = filename_with_ext.rsplit('.', 1)[0]
     cache_tensor_path = os.path.join(cache_dir, filename + '.safetensors')
 
-    if os.path.isfile(cache_tensor_path) and not self.raw_config.ignore_cache:
+    if not self.raw_config.ignore_cache and os.path.isfile(cache_tensor_path):
       if precache:
         return
       cache = {}
@@ -89,17 +90,18 @@ class CachedDataset(Dataset):
         for key in f.keys():
           cache[key] = f.get_tensor(key)
       cache['caption'] = data_item.get_caption()
+      cache['megapixels'] = data_item.width * data_item.height / 1_000_000
     else:
       pixel_values, caption = data_item.get_data()
       image_latent = self.config.vae.encode(pixel_values.unsqueeze(0).to(self.device, dtype=torch.float16)).latent_dist.sample() * 0.18215
       del pixel_values
       cache = {
         'image_latent': image_latent.squeeze(0).to('cpu'),
-        'megapixels': torch.tensor(data_item.width * data_item.height / 1_000_000),
       }
       del image_latent
       safetensors.torch.save_file(cache, cache_tensor_path)
       cache['caption'] = caption
+      cache['megapixels'] = data_item.width * data_item.height / 1_000_000
 
     self.getitem_call_num += 1
     if self.getitem_call_num >= self.__len__() and self.raw_dataset.config.ignore_cache:

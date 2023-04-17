@@ -17,8 +17,6 @@ class Timer:
 
 
 def garbage_collect():
-  with Timer('Collecting GC garbage, freeing GPU memory'):
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.ipc_collect()
-  print('', flush=True)
+  gc.collect()
+  torch.cuda.empty_cache()
+  torch.cuda.ipc_collect()
