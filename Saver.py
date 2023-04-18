@@ -81,21 +81,19 @@ class Saver:
 
 
   def save(self):
-    if not self.config.accelerator.is_main_process:
-      self.config.accelerator.wait_for_everyone()
-      return
-
-    self.last_saved_at = time.time()
-    save_path = os.path.join(self.config.save_dir, self.get_checkpoint_name())
-    saving_utils.save_sd(
-      save_path=save_path,
-      tokenizer=self.config.tokenizer,
-      text_encoder=self.config.accelerator.unwrap_model(self.config.text_encoder),
-      vae=AutoencoderKL.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='vae').to(self.config.accelerator.device),
-      unet=self.config.accelerator.unwrap_model(self.config.unet),
-      scheduler=self.config.scheduler,
-      should_save_diffusers=True,
-      should_save_compvis=self.config.save_compvis_checkpoint,
-      use_safetensors_for_diffusers=self.config.use_safetensors,
-      use_safetensors_for_compvis=self.config.use_safetensors_for_compvis,
-    )
+    self.config.accelerator.wait_for_everyone()
+    if self.config.accelerator.is_main_process:
+      self.last_saved_at = time.time()
+      save_path = os.path.join(self.config.save_dir, self.get_checkpoint_name())
+      saving_utils.save_sd(
+        save_path=save_path,
+        tokenizer=self.config.tokenizer,
+        text_encoder=self.config.accelerator.unwrap_model(self.config.text_encoder),
+        vae=AutoencoderKL.from_pretrained(self.config.pretrained_model_name_or_path, subfolder='vae').to(self.config.accelerator.device),
+        unet=self.config.accelerator.unwrap_model(self.config.unet),
+        scheduler=self.config.scheduler,
+        should_save_diffusers=True,
+        should_save_compvis=self.config.save_compvis_checkpoint,
+        use_safetensors_for_diffusers=self.config.use_safetensors,
+        use_safetensors_for_compvis=self.config.use_safetensors_for_compvis,
+      )

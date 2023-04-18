@@ -21,6 +21,7 @@ import os
 import builtins
 import tqdm
 import itertools
+import datetime
 import shutil
 
 import torch
@@ -33,7 +34,7 @@ from diffusers.optimization import get_scheduler as get_lr_scheduler
 from lion_pytorch import Lion
 from torch.optim.lr_scheduler import LambdaLR
 
-from accelerate import Accelerator
+from accelerate import Accelerator, InitProcessGroupKwargs
 from accelerate.utils import set_seed, broadcast_object_list
 
 import bitsandbytes
@@ -322,6 +323,9 @@ class DreamlikeTrainer:
       mixed_precision='fp16',
       log_with='tensorboard',
       project_dir=os.path.abspath('./runs'),
+      kwargs_handlers=[
+        InitProcessGroupKwargs(timeout=datetime.timedelta(seconds=3 * 3600)),
+      ],
     )
     original_print = builtins.print
     def print_fn(*args, ** kwargs):
