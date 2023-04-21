@@ -61,7 +61,6 @@ def get_unet_pred_ground_truth(clip_penultimate: bool, offset_noise_weight: floa
 
 
 def calc_unet_loss(step, noise_pred, ground_truth, timestep, use_snr, snr, snr_warmup_steps, scheduler):
-
   loss_orig = F.mse_loss(noise_pred.float(), ground_truth.float(), reduction='mean')
   loss_orig.to(noise_pred.device)
 
