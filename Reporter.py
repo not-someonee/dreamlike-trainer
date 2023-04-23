@@ -56,7 +56,13 @@ class AverageMeter:
     if len(self.values) > self.distance:
       self.values = self.values[1:]
       self.dates = self.dates[1:]
-    self.average = sum(self.values) / (time.time() - self.dates[0])
+
+    delta = (time.time() - self.dates[0])
+
+    if delta > 0:
+      self.average = sum(self.values) / (time.time() - self.dates[0])
+    else:
+      self.average = 0
 
 
 @dataclass
@@ -113,7 +119,7 @@ class Reporter:
   def step_end(self, epoch: int, step: int, global_step: int, unet_lr: float, te_lr: float, batch, loss: float):
     if not self.config.accelerator.is_main_process:
       return
-    
+
     just_created = False
     if self.epochs_progress is None:
       just_created = True

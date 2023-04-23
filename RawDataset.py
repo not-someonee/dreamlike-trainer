@@ -54,7 +54,7 @@ class RawDataItem:
 
   # Load image from disk, ensure it has correct size
   def get_image(self, jitter=20):
-    image = Image.open(self.path)
+    image = Image.open(self.path).convert('RGB')
 
     jitter_amount = random.randint(0, jitter)
 
