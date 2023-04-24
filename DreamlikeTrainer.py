@@ -267,8 +267,6 @@ class DreamlikeTrainer:
       loss = self.calc_loss_fn(step, batch, self.unet, self.text_encoder)
 
       self.accelerator.backward(loss)
-      if self.accelerator.sync_gradients:
-        self.accelerator.clip_grad_norm_(itertools.chain(self.unet.parameters(), self.text_encoder.parameters()), 1.0)
 
       self.unet_optimizer.step()
       self.te_optimizer.step()
@@ -320,7 +318,6 @@ class DreamlikeTrainer:
     # noinspection PyArgumentList
     self.accelerator = Accelerator(
       gradient_accumulation_steps=self.config.gradient_accumulation_steps,
-      mixed_precision='fp16',
       log_with='tensorboard',
       project_dir=os.path.abspath('./runs'),
       kwargs_handlers=[

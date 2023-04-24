@@ -61,6 +61,10 @@
     // - 640px at batch_size === 6
     batch_size: 7,
 
+    //Number of steps before gradient updates are applied and synced across GPUs
+    //Useful for improving performance in multi GPU training.
+    gradient_accumulation_steps: 2,
+
     // How much offset noise to add. Recommended values: 0.05 - 0.15
     offset_noise_weight: 0.05,
 

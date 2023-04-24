@@ -12,6 +12,7 @@ from torchvision import transforms
 from accelerate import Accelerator
 
 import safetensors
+import concurrent.futures
 import bucketing_utils
 import utils
 
@@ -182,9 +183,10 @@ class RawDataset(Dataset):
 
     if paths is None:
       # Use glob to load paths; shuffle them with seed; write paths_cache.txt; return paths
-      glob_pattern = os.path.join(config.directory, 'data', '*.*')
-      paths = glob.glob(glob_pattern)
+      glob_pattern = os.path.join(config.directory, '**/*.*')
+      paths = glob.glob(glob_pattern, recursive=True)
       paths = [p for p in paths if p.endswith(('jpg', 'jpeg', 'png', 'webp'))]
+
       if config.max_images != 0 and len(paths) > config.max_images:
         paths = paths[:config.max_images]
       with open(paths_cache_path, 'w+', encoding='utf-8') as file:
@@ -214,51 +216,58 @@ class RawDataset(Dataset):
     result = []
 
     for path in paths:
-      filename_with_ext = path.rsplit('/', 1)[-1]
-      filename = filename_with_ext.rsplit('.', 1)[0]
-      item_meta_cache_path = os.path.join(meta_directory, filename + '.txt')
+      try:
+        filename_with_ext = path.rsplit('/', 1)[-1]
+        filename = filename_with_ext.rsplit('.', 1)[0]
+        item_meta_cache_path = os.path.join(meta_directory, filename + '.txt')
 
-      # Get caption
-      caption_txt_file_path = os.path.join(directory, 'data', filename + '.txt')
-      caption = open(caption_txt_file_path, 'r', encoding='utf-8').read()
+        # Get caption
 
-      # Load native_width & native_height from cache
-      # Still calc width, height to allow for easily changing training resolution
-      if os.path.isfile(item_meta_cache_path):
-        meta = json.loads(open(item_meta_cache_path, 'r', encoding='utf-8').read())
-        width, height = bucketing_utils.find_closest_resolution(bucket_resolutions, meta['native_width'], meta['native_height'])
-        data_item = RawDataItem(
-          shuffle_captions=config.shuffle_captions,
-          cond_dropout=config.cond_dropout,
-          path=path,
-          caption=caption,
-          width=width, height=height,
-          native_width=meta['native_width'], native_height=meta['native_height'],
-        )
-      # Open image; fetch width/height; get caption; cache result
-      else:
-        # Get image width/height
-        image = Image.open(path)
-        native_width, native_height = image.size
-        width, height = bucketing_utils.find_closest_resolution(bucket_resolutions, native_width, native_height)
+        caption_txt_file_path = path.rsplit('.', 1)[0] + '.txt'
+        if not os.path.isfile(caption_txt_file_path):
+          continue # If the caption doesn't exist, skip it.  TODO: We should log these
 
-        # Save meta cache
-        with open(item_meta_cache_path, 'w+', encoding='utf-8') as file:
-          file.write(json.dumps({
-            'native_width': native_width,
-            'native_height': native_height,
-          }))
+        caption = open(caption_txt_file_path, 'r', encoding='utf-8').read()
 
-        data_item = RawDataItem(
-          shuffle_captions=config.shuffle_captions,
-          cond_dropout=config.cond_dropout,
-          path=path,
-          caption=caption,
-          width=width, height=height,
-          native_width=native_width, native_height=native_height,
-        )
+        # Load native_width & native_height from cache
+        # Still calc width, height to allow for easily changing training resolution
+        if os.path.isfile(item_meta_cache_path):
+          meta = json.loads(open(item_meta_cache_path, 'r', encoding='utf-8').read())
+          width, height = bucketing_utils.find_closest_resolution(bucket_resolutions, meta['native_width'], meta['native_height'])
+          data_item = RawDataItem(
+            shuffle_captions=config.shuffle_captions,
+            cond_dropout=config.cond_dropout,
+            path=path,
+            caption=caption,
+            width=width, height=height,
+            native_width=meta['native_width'], native_height=meta['native_height'],
+          )
+        # Open image; fetch width/height; get caption; cache result
+        else:
+          # Get image width/height
+          image = Image.open(path)
+          native_width, native_height = image.size
+          width, height = bucketing_utils.find_closest_resolution(bucket_resolutions, native_width, native_height)
 
-      result.append(data_item)
+          # Save meta cache
+          with open(item_meta_cache_path, 'w+', encoding='utf-8') as file:
+            file.write(json.dumps({
+              'native_width': native_width,
+              'native_height': native_height,
+            }))
+
+          data_item = RawDataItem(
+            shuffle_captions=config.shuffle_captions,
+            cond_dropout=config.cond_dropout,
+            path=path,
+            caption=caption,
+            width=width, height=height,
+            native_width=native_width, native_height=native_height,
+          )
+
+        result.append(data_item)
+      except Exception as e:
+        print(f'An Exception occurred reading a caption/image pair {path}: {str(e)}')
 
     return result
 

@@ -21,6 +21,12 @@ services:
       - ./runs:/workspace/runs
       - ./datasets:/workspace/datasets
       - docker_datasets:/workspace/docker_datasets
+      - "D:\\:/workspace/van_gogh"
+      - "E:\\:/workspace/disco"
+    ports:
+      - "6006:6006"
+    cap_add:
+      - SYS_PTRACE
     deploy:
       resources:
         reservations:
