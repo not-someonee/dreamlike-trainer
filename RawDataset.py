@@ -187,12 +187,23 @@ class RawDataset(Dataset):
       paths = glob.glob(glob_pattern, recursive=True)
       paths = [p for p in paths if p.endswith(('jpg', 'jpeg', 'png', 'webp'))]
 
+      valid_paths = []
+      for path in paths:
+        try:
+          Image.open(path).verify()
+          valid_paths.append(path)
+        except Exception as e:
+          print(f'Error loading {path}, skipping. {str(e)}')
+
+      paths = valid_paths
+
       if config.max_images != 0 and len(paths) > config.max_images:
         paths = paths[:config.max_images]
       with open(paths_cache_path, 'w+', encoding='utf-8') as file:
         file.write(str(config.max_images) + '\n')
         for path in paths:
           file.write(path.replace('\\', '/') + '\n')
+
 
     random.Random(config.seed).shuffle(paths)
 

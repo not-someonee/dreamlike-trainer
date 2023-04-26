@@ -43,6 +43,7 @@ import bitsandbytes
 @dataclass
 class DreamlikeTrainerConfig:
   pretrained_model_name_or_path: str
+  dreamlike_resume_path: str
   dataset_dir: str
   mode: Literal['train', 'lr_finder'] = 'train'
   cache_models: bool = True
@@ -399,8 +400,13 @@ class DreamlikeTrainer:
     with utils.Timer('accelerator.prepare'):
       self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.unet_lr_scheduler, self.te_lr_scheduler = \
         self.accelerator.prepare(self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.unet_lr_scheduler, self.te_lr_scheduler)
+      if self.config.dreamlike_resume_path is not None:
+        self.accelerator.load_state(self.config.dreamlike_resume_path)
+        print('Loaded resumable model state from ' + self.config.dreamlike_resume_path, flush=True)
+
     self.steps_per_epoch = len(self.cached_dataloader_train)
     self.total_steps = self.steps_per_epoch * self.config.epochs
+
 
 
   def load_sd(self):

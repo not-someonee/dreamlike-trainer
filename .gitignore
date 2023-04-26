@@ -32,3 +32,4 @@ models_cache.txt
 *.njsproj
 *.sln
 *.sw?
+local

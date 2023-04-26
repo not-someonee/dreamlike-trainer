@@ -19,6 +19,7 @@ from dataclasses import dataclass
 class SaverConfig:
   save_every_n_minutes: float = 60.0
   save_every_n_epochs: int = 1
+  save_resumable_ckpt: bool = False
   use_safetensors: bool = True
   save_compvis_checkpoint: bool = False
   use_safetensors_for_compvis: bool = True
@@ -97,3 +98,8 @@ class Saver:
         use_safetensors_for_diffusers=self.config.use_safetensors,
         use_safetensors_for_compvis=self.config.use_safetensors_for_compvis,
       )
+
+      if self.config.save_resumable_ckpt:
+        resumable = os.path.join(self.config.save_dir, 'resumable', self.get_checkpoint_name())
+        self.config.accelerator.save_state(resumable)
+        print('Saved resumable to ' + resumable, flush=True)

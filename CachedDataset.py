@@ -1,3 +1,4 @@
+import random
 from typing import List
 import os
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ import time
 import torch
 import torch.nn as nn
 import tqdm
+from PIL import UnidentifiedImageError
 from torch.utils.data import Dataset
 from transformers import CLIPTextModel, CLIPTokenizer
 from diffusers import AutoencoderKL
