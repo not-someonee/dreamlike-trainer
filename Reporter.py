@@ -60,7 +60,7 @@ class AverageMeter:
     delta = (time.time() - self.dates[0])
 
     if delta > 0:
-      self.average = sum(self.values) / (time.time() - self.dates[0])
+      self.average = sum(self.values) / delta
     else:
       self.average = 0
 
