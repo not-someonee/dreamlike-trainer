@@ -5,6 +5,8 @@ import random
 import glob
 import json
 from math import isclose
+
+import tqdm as tqdm
 from PIL import Image
 
 from torch.utils.data import Dataset
@@ -186,16 +188,7 @@ class RawDataset(Dataset):
       glob_pattern = os.path.join(config.directory, '**/*.*')
       paths = glob.glob(glob_pattern, recursive=True)
       paths = [p for p in paths if p.endswith(('jpg', 'jpeg', 'png', 'webp'))]
-
-      valid_paths = []
-      for path in paths:
-        try:
-          Image.open(path).verify()
-          valid_paths.append(path)
-        except Exception as e:
-          print(f'Error loading {path}, skipping. {str(e)}')
-
-      paths = valid_paths
+      paths = RawDataset.filter_invalid(paths)
 
       if config.max_images != 0 and len(paths) > config.max_images:
         paths = paths[:config.max_images]
@@ -217,6 +210,18 @@ class RawDataset(Dataset):
 
     return paths[:paths_to_split]
 
+  @staticmethod
+  def filter_invalid(paths):
+    valid_paths = []
+    for path in tqdm(paths, desc="Validating Images"):
+      try:
+        Image.open(path).verify()
+        valid_paths.append(path)
+      except Exception as e:
+        with open('./file_errors.log', 'a') as f:
+          f.write(path + '\n')
+    paths = valid_paths
+    return paths
 
   # Load image width, height, caption, etc. for each path in self.paths; Return List[RawDataItem]
   @staticmethod

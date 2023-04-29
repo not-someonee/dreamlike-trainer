@@ -6,6 +6,8 @@ import torch.nn.functional as F
 from transformers import CLIPTextModel
 from diffusers import DDPMScheduler, UNet2DConditionModel
 
+import sd_utils
+
 
 # https://arxiv.org/pdf/2303.09556.pdf
 def get_snr_weight(timesteps, scheduler, gamma):
@@ -22,10 +24,11 @@ def get_snr_weight(timesteps, scheduler, gamma):
 
 
 # Get predicted noise and ground truth (noise or noise velocity depending on SD version)
-def get_unet_pred_ground_truth(clip_penultimate: bool, offset_noise_weight: float, unet: UNet2DConditionModel, text_encoder: CLIPTextModel, batch, scheduler: DDPMScheduler):
+def get_unet_pred_ground_truth(clip_penultimate: bool, offset_noise_weight: float, unet: UNet2DConditionModel, text_encoder: CLIPTextModel, batch, scheduler: DDPMScheduler, tokenizer):
   device = unet.device
   latents = batch['latents'].to(device)
-  caption_token_ids = batch['caption_token_ids'].to(device)
+  caption_token_ids = [sd_utils.tokenize(tokenizer, caption, device) for caption in batch['captions']]
+  caption_token_ids = torch.stack(caption_token_ids).to(device)
   batch_size = latents.shape[0]
 
   noise = torch.randn_like(latents)

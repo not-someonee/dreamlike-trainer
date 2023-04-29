@@ -289,6 +289,7 @@ class DreamlikeTrainer:
       scheduler=self.scheduler,
       clip_penultimate=self.config.clip_penultimate,
       offset_noise_weight=self.config.offset_noise_weight,
+      tokenizer=self.tokenizer
     )
 
     loss, loss_with_snr = train_utils.calc_unet_loss(
@@ -501,8 +502,9 @@ class DreamlikeTrainer:
 
 
   def load_cached_dataloaders(self):
-    collate_fn = CachedDataset.make_collate_fn(self.tokenizer, self.device)
+    workers = min(self.config.batch_size, os.cpu_count())
+    print(f"DataLoader workers: {workers}", flush=True)
 
-    self.cached_dataloader_train = DataLoader(self.cached_dataset_train, batch_size=self.config.batch_size, shuffle=False, collate_fn=collate_fn)
-    self.cached_dataloader_val = DataLoader(self.cached_dataset_val, batch_size=self.config.batch_size, shuffle=False, collate_fn=collate_fn)
+    self.cached_dataloader_train = DataLoader(self.cached_dataset_train, batch_size=self.config.batch_size, shuffle=False, collate_fn=CachedDataset.collate_fn, num_workers=workers)
+    self.cached_dataloader_val = DataLoader(self.cached_dataset_val, batch_size=self.config.batch_size, shuffle=False, collate_fn=CachedDataset.collate_fn, num_workers=workers)
 
