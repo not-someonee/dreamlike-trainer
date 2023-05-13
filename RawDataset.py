@@ -6,7 +6,7 @@ import glob
 import json
 from math import isclose
 
-import tqdm as tqdm
+from tqdm import tqdm
 from PIL import Image
 
 from torch.utils.data import Dataset
@@ -220,8 +220,7 @@ class RawDataset(Dataset):
       except Exception as e:
         with open('./file_errors.log', 'a') as f:
           f.write(path + '\n')
-    paths = valid_paths
-    return paths
+    return valid_paths
 
   # Load image width, height, caption, etc. for each path in self.paths; Return List[RawDataItem]
   @staticmethod

@@ -236,6 +236,7 @@ class DreamlikeTrainer:
     self.train_start()
 
     for epoch in range(self.config.epochs):
+      self.epoch = epoch
       self.epoch_start(epoch)
 
       for step, batch in enumerate(self.cached_dataloader_train):
@@ -270,13 +271,13 @@ class DreamlikeTrainer:
       self.accelerator.backward(loss)
 
       self.unet_optimizer.step()
-      self.te_optimizer.step()
-
       self.unet_lr_scheduler.step()
-      self.te_lr_scheduler.step()
-
       self.unet_optimizer.zero_grad(set_to_none=True)
-      self.te_optimizer.zero_grad(set_to_none=True)
+
+      if self.epoch <= self.config.te_lr_epochs:
+        self.te_optimizer.step()
+        self.te_lr_scheduler.step()
+        self.te_optimizer.zero_grad(set_to_none=True)
 
       self.last_loss = loss.item()
 
