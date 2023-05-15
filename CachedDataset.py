@@ -21,7 +21,6 @@ import sd_utils
 @dataclass
 class CachedDatasetConfig:
   raw_dataset: RawDataset
-  vae: AutoencoderKL
 
 
 class CachedDataset(Dataset):
@@ -46,7 +45,7 @@ class CachedDataset(Dataset):
 
     del batch
 
-    latents = torch.stack(latents).float()
+    #latents = torch.stack(latents).float()
     return { 'latents': latents, 'captions': captions, 'megapixels': megapixels }
 
 
@@ -73,39 +72,21 @@ class CachedDataset(Dataset):
 
   @torch.no_grad()
   def ___getitem___(self, index, precache=False):
-
     data_item: RawDataItem = self.config.raw_dataset.__getitem__(index)
+    pixel_values, caption = data_item.get_data()
+    #image_latent = self.config.vae.encode(pixel_values.unsqueeze(0).to(self.device, dtype=torch.float16)).latent_dist.sample() * 0.18215
+    #del pixel_values
+    #cache = {
+    #  'image_latent': image_latent.squeeze(0).to('cpu'),
+    #}
+    #del image_latent
+    #safetensors.torch.save_file(cache, cache_tensor_path)
+    cache = {
+      'image_latent': pixel_values
+     }
 
-    filename_with_ext = data_item.path.rsplit('/', 1)[-1]
-    filename = filename_with_ext.rsplit('.', 1)[0]
-    cache_tensor_path = os.path.join(self.cache_dir, filename + '.safetensors')
-
-    if not self.raw_config.ignore_cache and os.path.isfile(cache_tensor_path):
-      if precache:
-        return
-      cache = {}
-      with safetensors.safe_open(cache_tensor_path, framework='pt') as f:
-        for key in f.keys():
-          cache[key] = f.get_tensor(key)
-      cache['caption'] = data_item.get_caption()
-      cache['megapixels'] = data_item.width * data_item.height / 1_000_000
-
-    else:
-      pixel_values, caption = data_item.get_data()
-      image_latent = self.config.vae.encode(pixel_values.unsqueeze(0).to(self.device, dtype=torch.float16)).latent_dist.sample() * 0.18215
-      del pixel_values
-      cache = {
-        'image_latent': image_latent.squeeze(0).to('cpu'),
-      }
-      del image_latent
-      safetensors.torch.save_file(cache, cache_tensor_path)
-      cache['caption'] = caption
-      cache['megapixels'] = data_item.width * data_item.height / 1_000_000
-
-    self.getitem_call_num += 1
-    if self.getitem_call_num >= self.__len__() and self.raw_dataset.config.ignore_cache:
-      self.raw_dataset.config.ignore_cache = False
-      print('Recalculated cache, switching ignore_cache to False')
+    cache['caption'] = caption
+    cache['megapixels'] = data_item.width * data_item.height / 1_000_000
 
     return cache
 
