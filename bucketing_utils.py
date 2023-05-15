@@ -330,8 +330,54 @@ RESOLUTIONS_512 = [
   [1024, 256], [256, 1024],
 ]
 
+RESOLUTIONS_448 = [
+  [448, 448],
+  [512, 384], [384, 512],
+  [576, 320], [320, 576],
+  [704, 256], [256, 704],
+  [768, 192], [192, 768],
+  [832, 192], [192, 832],
+  [896, 192], [192, 896],
+  [960, 192], [192, 960]]
+
+RESOLUTIONS_384 = [
+  [384, 384],
+  [448, 320], [320, 448],
+  [512, 256], [256, 512],
+  [640, 192], [192, 640],
+  [640, 192], [192, 640],
+  [704, 192], [192, 704],
+  [704, 128], [128, 704],
+  [768, 128], [128, 768],
+  [832, 128], [128, 832],
+  [896, 128], [128, 896],
+]
+
+RESOLUTIONS_320 = [
+  [320, 320],
+  [384, 256], [256, 384],
+  [448, 192], [192, 448],
+  [448, 192], [192, 448],
+  [512, 192], [192, 512],
+  [512, 64], [64, 512],
+  [576, 64], [64, 576],
+  [640, 64], [64, 640],
+  [704, 64], [64, 704],
+]
+
+RESOLUTIONS_256 = [
+  [256, 256],
+  [288, 224], [224, 288],
+  [320, 192], [192, 320],
+  [384, 160], [160, 384],
+  [416, 128], [128, 416],
+  [448, 128], [128, 448],
+  [480, 128], [128, 480],
+  [512, 128], [128, 512]
+]
+
 ALL_RESOLUTIONS = [
-  RESOLUTIONS_512, RESOLUTIONS_576, RESOLUTIONS_640, RESOLUTIONS_704, RESOLUTIONS_768, RESOLUTIONS_832, RESOLUTIONS_896,
+  RESOLUTIONS_256, RESOLUTIONS_320, RESOLUTIONS_384, RESOLUTIONS_448, RESOLUTIONS_512, RESOLUTIONS_576, RESOLUTIONS_640, RESOLUTIONS_704, RESOLUTIONS_768, RESOLUTIONS_832, RESOLUTIONS_896,
   RESOLUTIONS_960, RESOLUTIONS_1024, RESOLUTIONS_1088, RESOLUTIONS_1152, RESOLUTIONS_1216, RESOLUTIONS_1280, RESOLUTIONS_1344,
   RESOLUTIONS_1408, RESOLUTIONS_1472, RESOLUTIONS_1536, RESOLUTIONS_1600, RESOLUTIONS_1664, RESOLUTIONS_1728, RESOLUTIONS_1792,
   RESOLUTIONS_1856, RESOLUTIONS_1920, RESOLUTIONS_1984, RESOLUTIONS_2048
@@ -339,11 +385,11 @@ ALL_RESOLUTIONS = [
 
 # Given a resolution, return a list of resolutions with ~ the same amount of pixels
 def get_closest_bucket_resolutions(resolution: int):
-  if resolution < 512 or resolution > 2048:
+  if resolution < 256 or resolution > 2048:
     raise ValueError('Resolution must be >= 512 & <= 2048')
   if resolution % 64 != 0:
     raise ValueError('Resolution must be divisible by 64')
-  return ALL_RESOLUTIONS[int((resolution - 512) / 64)]
+  return ALL_RESOLUTIONS[int((resolution - 256) / 64)]
 
 # Given a list of resolutions, width & height, find a resolution in the list that has the closest aspect ratio to the given aspect ratio (width/height)
 def find_closest_resolution(resolutions: List[List[int]], width: int, height: int):
