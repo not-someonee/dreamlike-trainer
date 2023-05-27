@@ -1,1 +1,7 @@
 ./docker_datasets/sd_v1_5_vae/:_41584619
+/mnt/van_gogh/ckpt/stable-diffusion-v1-5:stable-diffusion-v1-5_63999067
+./runs/test_3e8_adam___2023-05-16_07-54-52/models/test_3e8_adam___2023-05-16_07-54-52__ep_55__s127917/:_63249694
+./runs/test_5e8_adam___2023-05-16_23-49-56/models/test_5e8_adam___2023-05-16_23-49-56__ep_210__s453860/:_29410162
+/mnt/van_gogh/ckpt/stable-diffusion-2-1/:_36009446
+./runs/test_384px_4p5e8_adam___2023-05-18_20-51-57/models/test_384px_4p5e8_adam___2023-05-18_20-51-57__ep_50__s234395/:_46948404
+./runs/SD21_384px_5e8_adam___2023-05-19_19-45-38/models/SD21_384px_5e8_adam___2023-05-19_19-45-38__ep_39__s219931/:_53940214

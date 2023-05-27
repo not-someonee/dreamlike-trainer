@@ -188,7 +188,7 @@ class RawDataset(Dataset):
       glob_pattern = os.path.join(config.directory, '**/*.*')
       paths = glob.glob(glob_pattern, recursive=True)
       paths = [p for p in paths if p.endswith(('jpg', 'jpeg', 'png', 'webp'))]
-      paths = RawDataset.filter_invalid(paths)
+      #paths = RawDataset.filter_invalid(paths)
 
       if config.max_images != 0 and len(paths) > config.max_images:
         paths = paths[:config.max_images]

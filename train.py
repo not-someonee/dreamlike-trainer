@@ -1,3 +1,5 @@
+import torch
+
 from DreamlikeTrainer import DreamlikeTrainer, DreamlikeTrainerConfig
 from Reporter import ReporterConfig
 from Imagen import ImagenConfig
@@ -50,6 +52,7 @@ reporter_config = ReporterConfig(**json_config['reporter'])
 imagen_config = ImagenConfig(**json_config['imagen'])
 saver_config = SaverConfig(**json_config['saver'])
 
+#torch._dynamo.config.verbose=True
 
 with utils.Timer('Initializing trainer'):
   trainer = DreamlikeTrainer(trainer_config, reporter_config, imagen_config, saver_config)

@@ -1,3 +1,5 @@
+from dadaptation import DAdaptLion, DAdaptAdam
+
 import setup_env
 
 import utils
@@ -32,7 +34,7 @@ from transformers import CLIPTextModel, CLIPModel, CLIPTokenizer, CLIPImageProce
 from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler, EulerDiscreteScheduler
 from diffusers.optimization import get_scheduler as get_lr_scheduler
 from lion_pytorch import Lion
-from torch.optim.lr_scheduler import LambdaLR
+from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 
 from accelerate import Accelerator, InitProcessGroupKwargs
 from accelerate.utils import set_seed, broadcast_object_list
@@ -271,12 +273,12 @@ class DreamlikeTrainer:
       self.accelerator.backward(loss)
 
       self.unet_optimizer.step()
-      self.unet_lr_scheduler.step()
+      self.unet_lr_scheduler.step(loss.item())
       self.unet_optimizer.zero_grad(set_to_none=True)
 
       if self.epoch <= self.config.te_lr_epochs:
         self.te_optimizer.step()
-        self.te_lr_scheduler.step()
+        self.te_lr_scheduler.step(loss.item())
         self.te_optimizer.zero_grad(set_to_none=True)
 
       self.last_loss = loss.item()
@@ -290,7 +292,8 @@ class DreamlikeTrainer:
       scheduler=self.scheduler,
       clip_penultimate=self.config.clip_penultimate,
       offset_noise_weight=self.config.offset_noise_weight,
-      tokenizer=self.tokenizer
+      tokenizer=self.tokenizer,
+      device = self.device
     )
 
     loss, loss_with_snr = train_utils.calc_unet_loss(
@@ -400,6 +403,9 @@ class DreamlikeTrainer:
 
   def prepare_accelerator(self):
     with utils.Timer('accelerator.prepare'):
+      #self.unet = torch.compile(self.unet, fullgraph=False)
+      #self.text_encoder = torch.compile(self.text_encoder ,  fullgraph=False)
+
       self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.unet_lr_scheduler, self.te_lr_scheduler = \
         self.accelerator.prepare(self.unet, self.text_encoder, self.unet_optimizer, self.te_optimizer, self.cached_dataloader_train, self.unet_lr_scheduler, self.te_lr_scheduler)
       if self.config.dreamlike_resume_path is not None:
@@ -425,12 +431,20 @@ class DreamlikeTrainer:
         betas=(self.config.adam_optimizer_beta_one, self.config.adam_optimizer_beta_two),
         weight_decay=self.config.adam_optimizer_weight_decay
       )
-    return Lion(
-      params_to_optimize,
-      lr=lr,
-      betas=(self.config.lion_optimizer_beta_one, self.config.lion_optimizer_beta_two),
-      weight_decay=self.config.lion_optimizer_weight_decay,
-    )
+    if self.config.optimizer == 'lion8bit':
+      return bitsandbytes.optim.Lion8bit(
+        params_to_optimize,
+        lr=lr,
+        betas=(self.config.lion_optimizer_beta_one, self.config.lion_optimizer_beta_two),
+        weight_decay=self.config.lion_optimizer_weight_decay
+      )
+    if self.config.optimizer == 'lion':
+      return Lion(
+        params_to_optimize,
+        lr=lr,
+        betas=(self.config.lion_optimizer_beta_one, self.config.lion_optimizer_beta_two),
+        weight_decay=self.config.lion_optimizer_weight_decay,
+      )
 
   def create_optimizer(self):
     self.unet_optimizer = self.get_optimizer(self.unet.parameters(), self.config.unet_lr)
@@ -503,7 +517,7 @@ class DreamlikeTrainer:
 
 
   def load_cached_dataloaders(self):
-    workers = min(self.config.batch_size, os.cpu_count())
+    workers = 1 #min(self.config.batch_size, os.cpu_count())
     print(f"DataLoader workers: {workers}", flush=True)
 
     self.cached_dataloader_train = DataLoader(self.cached_dataset_train, batch_size=self.config.batch_size, shuffle=False, collate_fn=CachedDataset.collate_fn, num_workers=workers)
