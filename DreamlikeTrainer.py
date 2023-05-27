@@ -227,7 +227,6 @@ class DreamlikeTrainer:
     for module in self.modules:
       module.step_end(**kwargs)
 
-
   def train(self):
     print('\n==========================================\n', flush=True)
     print('STARTING TRAINING!', flush=True)
@@ -242,6 +241,7 @@ class DreamlikeTrainer:
       self.epoch_start(epoch)
 
       for step, batch in enumerate(self.cached_dataloader_train):
+        self.prepare_batch(batch)
         self.step_start(epoch, step)
         self.step(step, batch)
         self.step_end(epoch, step, batch)
@@ -261,6 +261,18 @@ class DreamlikeTrainer:
 
     self.accelerator.end_training()
 
+  @torch.no_grad()
+  def prepare_batch(self, batch):
+    latents = []
+    for pixel_values in batch['latents']:
+      image_latent = self.vae.encode(
+        pixel_values.unsqueeze(0).to(self.device, dtype=torch.float16)).latent_dist.sample() * 0.18215
+      image_latent = image_latent.squeeze(0).to('cpu')
+      latents.append(image_latent)
+      del pixel_values
+
+    batch['latents'] = torch.stack(latents).float()
+    del latents
 
   def stop(self):
     self._stop = True
@@ -392,6 +404,7 @@ class DreamlikeTrainer:
       reporter=self.reporter,
       unet=self.unet,
       text_encoder=self.text_encoder,
+      vae=self.vae,
       accelerator=self.accelerator,
       validate_every_n_minutes=self.config.validate_every_n_minutes,
       validate_every_n_epochs=self.config.validate_every_n_epochs,
@@ -512,8 +525,8 @@ class DreamlikeTrainer:
 
 
   def load_cached_datasets(self):
-    self.cached_dataset_train = CachedDataset(CachedDatasetConfig(raw_dataset=self.raw_dataset_train, vae=self.vae))
-    self.cached_dataset_val = CachedDataset(CachedDatasetConfig(raw_dataset=self.raw_dataset_val, vae=self.vae))
+    self.cached_dataset_train = CachedDataset(CachedDatasetConfig(raw_dataset=self.raw_dataset_train))
+    self.cached_dataset_val = CachedDataset(CachedDatasetConfig(raw_dataset=self.raw_dataset_val))
 
 
   def load_cached_dataloaders(self):
