@@ -70,12 +70,12 @@ class DreamlikeTrainerConfig:
   validate_at_training_end: bool = True
 
   unet_lr: float = 1e-6
-  unet_lr_scheduler: Literal['constant', 'cosine', 'cosine_with_restarts'] = 'cosine_with_restarts'
+  unet_lr_scheduler: Literal['linear', 'constant', 'cosine', 'cosine_with_restarts'] = 'cosine_with_restarts'
   unet_lr_warmup_steps: int = 0
   unet_lr_epochs: int = 0
 
   te_lr: float = 1e-6
-  te_lr_scheduler: Literal['constant', 'cosine', 'cosine_with_restarts'] = 'cosine_with_restarts'
+  te_lr_scheduler: Literal['linear', 'constant', 'cosine', 'cosine_with_restarts'] = 'cosine_with_restarts'
   te_lr_warmup_steps: int = 0
   te_lr_epochs: int = 0
 
@@ -285,12 +285,12 @@ class DreamlikeTrainer:
       self.accelerator.backward(loss)
 
       self.unet_optimizer.step()
-      self.unet_lr_scheduler.step(loss.item())
+      self.unet_lr_scheduler.step()
       self.unet_optimizer.zero_grad(set_to_none=True)
 
       if self.epoch <= self.config.te_lr_epochs:
         self.te_optimizer.step()
-        self.te_lr_scheduler.step(loss.item())
+        self.te_lr_scheduler.step()
         self.te_optimizer.zero_grad(set_to_none=True)
 
       self.last_loss = loss.item()
@@ -437,6 +437,15 @@ class DreamlikeTrainer:
 
 
   def get_optimizer(self, params_to_optimize, lr):
+    if self.config.optimizer == 'dada_adam':
+      from dadaptation import DAdaptAdam
+      return DAdaptAdam(
+        params_to_optimize,
+        lr=lr,
+        betas=(self.config.adam_optimizer_beta_one, self.config.adam_optimizer_beta_two),
+        weight_decay=self.config.adam_optimizer_weight_decay,
+        decouple=True
+      )
     if self.config.optimizer == 'adam':
       return bitsandbytes.optim.AdamW8bit(
         params_to_optimize,
@@ -460,8 +469,8 @@ class DreamlikeTrainer:
       )
 
   def create_optimizer(self):
-    self.unet_optimizer = self.get_optimizer(self.unet.parameters(), self.config.unet_lr)
-    self.te_optimizer = self.get_optimizer(self.text_encoder.parameters(), self.config.te_lr)
+      self.unet_optimizer = self.get_optimizer(self.unet.parameters(), self.config.unet_lr)
+      self.te_optimizer = self.get_optimizer(self.text_encoder.parameters(), self.config.te_lr)
 
 
   @staticmethod
@@ -478,6 +487,8 @@ class DreamlikeTrainer:
 
 
   def get_lr_scheduler(self, name, optimizer, num_warmup_steps, num_training_steps, num_cycles):
+    print(f"Creating {name} Scheduler.  warmup: {num_warmup_steps}, total steps: {num_training_steps}, cycles: {num_cycles}")
+
     if name != 'cosine_with_restarts':
       return get_lr_scheduler(name=name, optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps)
     return self.get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, num_cycles)
@@ -530,7 +541,7 @@ class DreamlikeTrainer:
 
 
   def load_cached_dataloaders(self):
-    workers = 1 #min(self.config.batch_size, os.cpu_count())
+    workers = min(self.config.batch_size, os.cpu_count() - 2)
     print(f"DataLoader workers: {workers}", flush=True)
 
     self.cached_dataloader_train = DataLoader(self.cached_dataset_train, batch_size=self.config.batch_size, shuffle=False, collate_fn=CachedDataset.collate_fn, num_workers=workers)

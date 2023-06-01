@@ -1,3 +1,4 @@
+import uuid
 from typing import Dict, Any, List, Tuple, Literal
 from dataclasses import dataclass
 import os
@@ -56,21 +57,23 @@ class RawDataItem:
 
 
   # Load image from disk, ensure it has correct size
-  def get_image(self, jitter=20):
+  def get_image(self, jitter=0.05):
     image = Image.open(self.path).convert('RGB')
+    cropped_image = image
 
-    jitter_amount = random.randint(0, jitter)
+    range = int(min(image.width, image.height) * jitter)
+    jitter_amount = random.randint(0, range)
 
-    native_width = self.native_width
-    native_height = self.native_height
+    native_width = image.width
+    native_height = image.height
 
     if self.width == self.height:
       if native_width > native_height:
         left = random.randint(0, native_width - native_height)
-        image = image.crop((left, 0, native_height + left, native_height))
+        cropped_image = cropped_image.crop((left, 0, native_height + left, native_height))
       elif native_height > native_width:
         top = random.randint(0, native_height - native_width)
-        image = image.crop((0, top, native_width, native_width + top))
+        cropped_image = cropped_image.crop((0, top, native_width, native_width + top))
       elif native_width > self.width:
         random_trim = 0.04
         image_slice = min(int(self.width * random_trim), native_width - self.width)
@@ -81,7 +84,7 @@ class RawDataItem:
         top = int(image_slice * sliceh_ratio)
         bottom = native_height - int(image_slice * (1 - sliceh_ratio))
 
-        image = image.crop((left, top, right, bottom))
+        cropped_image = cropped_image.crop((left, top, right, bottom))
     else:
       image_aspect = native_width / native_height
       target_aspect = self.width / self.height
@@ -90,14 +93,15 @@ class RawDataItem:
         jitter_amount = max(min(jitter_amount, int(abs(native_width - new_width) / 2)), 0)
         left = jitter_amount
         right = left + new_width
-        image = image.crop((left, 0, right, native_height))
+        cropped_image = cropped_image.crop((left, 0, right, native_height))
       else:
         new_height = int(native_width / target_aspect)
         jitter_amount = max(min(jitter_amount, int(abs(native_height - new_height) / 2)), 0)
         top = jitter_amount
         bottom = top + new_height
-        image = image.crop((0, top, native_width, bottom))
-    return image.resize((self.width, self.height), resample=Image.Resampling.LANCZOS)
+        cropped_image = cropped_image.crop((0, top, native_width, bottom))
+
+    return cropped_image.resize((self.width, self.height), resample=Image.Resampling.BICUBIC)
 
 
 @dataclass
@@ -188,7 +192,7 @@ class RawDataset(Dataset):
       glob_pattern = os.path.join(config.directory, '**/*.*')
       paths = glob.glob(glob_pattern, recursive=True)
       paths = [p for p in paths if p.endswith(('jpg', 'jpeg', 'png', 'webp'))]
-      #paths = RawDataset.filter_invalid(paths)
+      paths = RawDataset.filter_invalid(paths)
 
       if config.max_images != 0 and len(paths) > config.max_images:
         paths = paths[:config.max_images]
@@ -244,41 +248,25 @@ class RawDataset(Dataset):
 
         caption = open(caption_txt_file_path, 'r', encoding='utf-8').read()
 
-        # Load native_width & native_height from cache
-        # Still calc width, height to allow for easily changing training resolution
-        if os.path.isfile(item_meta_cache_path):
-          meta = json.loads(open(item_meta_cache_path, 'r', encoding='utf-8').read())
-          width, height = bucketing_utils.find_closest_resolution(bucket_resolutions, meta['native_width'], meta['native_height'])
-          data_item = RawDataItem(
-            shuffle_captions=config.shuffle_captions,
-            cond_dropout=config.cond_dropout,
-            path=path,
-            caption=caption,
-            width=width, height=height,
-            native_width=meta['native_width'], native_height=meta['native_height'],
-          )
-        # Open image; fetch width/height; get caption; cache result
-        else:
-          # Get image width/height
-          image = Image.open(path)
-          native_width, native_height = image.size
-          width, height = bucketing_utils.find_closest_resolution(bucket_resolutions, native_width, native_height)
+        image = Image.open(path)
+        native_width, native_height = image.size
+        width, height = bucketing_utils.find_closest_resolution(bucket_resolutions, native_width, native_height)
 
-          # Save meta cache
-          with open(item_meta_cache_path, 'w+', encoding='utf-8') as file:
-            file.write(json.dumps({
-              'native_width': native_width,
-              'native_height': native_height,
-            }))
+        # Save meta cache
+        with open(item_meta_cache_path, 'w+', encoding='utf-8') as file:
+          file.write(json.dumps({
+            'native_width': native_width,
+            'native_height': native_height,
+          }))
 
-          data_item = RawDataItem(
-            shuffle_captions=config.shuffle_captions,
-            cond_dropout=config.cond_dropout,
-            path=path,
-            caption=caption,
-            width=width, height=height,
-            native_width=native_width, native_height=native_height,
-          )
+        data_item = RawDataItem(
+          shuffle_captions=config.shuffle_captions,
+          cond_dropout=config.cond_dropout,
+          path=path,
+          caption=caption,
+          width=width, height=height,
+          native_width=native_width, native_height=native_height,
+        )
 
         result.append(data_item)
       except Exception as e:
