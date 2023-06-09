@@ -33,3 +33,4 @@ models_cache.txt
 *.sln
 *.sw?
 local
+venv

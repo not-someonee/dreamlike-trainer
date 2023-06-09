@@ -99,6 +99,10 @@ class DreamlikeTrainerConfig:
   config_path: str = None
   run_name: str = ''
 
+  freeze_embeddings = False
+  freeze_front_n_layers = -2
+  freeze_final_layer_norm = False
+
 
 class DreamlikeTrainer:
   config: DreamlikeTrainerConfig = None
@@ -444,6 +448,7 @@ class DreamlikeTrainer:
         lr=lr,
         betas=(self.config.adam_optimizer_beta_one, self.config.adam_optimizer_beta_two),
         weight_decay=self.config.adam_optimizer_weight_decay,
+        growth_rate=1.02,
         decouple=True
       )
     if self.config.optimizer == 'adam':
@@ -468,9 +473,36 @@ class DreamlikeTrainer:
         weight_decay=self.config.lion_optimizer_weight_decay,
       )
 
+  def _apply_text_encoder_freeze(self, text_encoder) -> chain[Any]:
+    parameters = itertools.chain([])
+
+    if self.config.freeze_embeddings:
+      # freeze embeddings
+      print(" ❄️ freezing embeddings")
+    else:
+      parameters = itertools.chain(parameters, text_encoder.text_model.embeddings.parameters())
+
+    freeze_front_n_layers = self.config.freeze_front_n_layers
+    if freeze_front_n_layers is None:
+      parameters = itertools.chain(parameters, text_encoder.text_model.encoder.layers.parameters())
+    else:
+      # freeze the specified CLIP text encoder layers
+      layers = text_encoder.text_model.encoder.layers
+      print(f" ❄️ freezing text encoder layers 0-{len(layers[:freeze_front_n_layers])} of {len(layers)}")
+      parameters = itertools.chain(parameters, layers[freeze_front_n_layers:].parameters())
+
+    if self.config.freeze_final_layer_norm:
+      # instead of freezing the final layer norm parameters, we simply do not return them
+      print(" ❄️ freezing final layer norm")
+    else:
+      parameters = itertools.chain(parameters, text_encoder.text_model.final_layer_norm.parameters())
+
+    return parameters
+
   def create_optimizer(self):
-      self.unet_optimizer = self.get_optimizer(self.unet.parameters(), self.config.unet_lr)
-      self.te_optimizer = self.get_optimizer(self.text_encoder.parameters(), self.config.te_lr)
+    te_params = self._apply_text_encoder_freeze(self.text_encoder)
+    self.unet_optimizer = self.get_optimizer(self.unet.parameters(), self.config.unet_lr)
+    self.te_optimizer = self.get_optimizer(te_params, self.config.te_lr)
 
 
   @staticmethod

@@ -43,6 +43,22 @@ def load_sd(pretrained_model_name_or_path: str, device, use_cache: bool = True):
 
   return sd
 
+def enforce_zero_terminal_snr(betas):
+  # from https://arxiv.org/pdf/2305.08891.pdf
+  alphas = 1 - betas
+  alphas_bar = alphas.cumprod(0)
+  alphas_bar_sqrt = alphas_bar.sqrt()
+
+  alphas_bar_sqrt_0 = alphas_bar_sqrt[0].clone()
+  alphas_bar_sqrt_T = alphas_bar_sqrt[-1].clone()
+  alphas_bar_sqrt -= alphas_bar_sqrt_T
+  alphas_bar_sqrt *= alphas_bar_sqrt_0 / (alphas_bar_sqrt_0 - alphas_bar_sqrt_T)
+
+  alphas_bar = alphas_bar_sqrt ** 2
+  alphas = alphas_bar[1:] / alphas_bar[:-1]
+  alphas = torch.cat([alphas_bar[0:1], alphas])
+  betas = 1 - alphas
+  return betas
 
 def _load_sd(pretrained_model_name_or_path: str, device):
   with utils.Timer('Loading SD'):
@@ -61,7 +77,10 @@ def _load_sd(pretrained_model_name_or_path: str, device):
       vae.enable_xformers_memory_efficient_attention()
       vae.to(device)
       vae.requires_grad_(False)
-    scheduler = DDPMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder='scheduler')
+
+    temp_scheduler = DDPMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder="scheduler")
+    trained_betas = enforce_zero_terminal_snr(temp_scheduler.betas).numpy().tolist()
+    scheduler = DDPMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder='scheduler', trained_betas=trained_betas)
 
   return tokenizer, text_encoder, unet, vae, scheduler
 

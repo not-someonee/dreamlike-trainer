@@ -192,7 +192,7 @@ class RawDataset(Dataset):
       glob_pattern = os.path.join(config.directory, '**/*.*')
       paths = glob.glob(glob_pattern, recursive=True)
       paths = [p for p in paths if p.endswith(('jpg', 'jpeg', 'png', 'webp'))]
-      paths = RawDataset.filter_invalid(paths)
+      #paths = RawDataset.filter_invalid(paths)
 
       if config.max_images != 0 and len(paths) > config.max_images:
         paths = paths[:config.max_images]
@@ -234,7 +234,7 @@ class RawDataset(Dataset):
 
     result = []
 
-    for path in paths:
+    for path in tqdm(paths):
       try:
         filename_with_ext = path.rsplit('/', 1)[-1]
         filename = filename_with_ext.rsplit('.', 1)[0]
@@ -280,14 +280,14 @@ class RawDataset(Dataset):
   def bucketize_data_items(data_items: List[RawDataItem], batch_size: int) -> List[RawDataItem]:
     # Sort all data_items by their resolution
     buckets: Dict[Tuple[int, int], List[RawDataItem]] = {}
-    for item in data_items:
+    for item in tqdm(data_items, desc="Bucketing"):
       if item.size not in buckets:
         buckets[item.size] = []
       buckets[item.size].append(item)
 
     result_data_items: List[RawDataItem] = []
     buckets_count = 0
-    for resolution in buckets:
+    for resolution in tqdm(buckets, desc="Filtering buckets"):
       bucket_data_items = buckets[resolution]
       bucket_data_items_len = len(bucket_data_items)
 
