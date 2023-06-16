@@ -165,6 +165,12 @@ class DreamlikeTrainer:
       self.config.unet_lr *= self.config.lion_optimizer_lr_multiplier
       self.config.te_lr *= self.config.lion_optimizer_lr_multiplier
 
+    if self.config.te_lr_epochs == 0:
+      self.config.te_lr_epochs = self.config.epochs
+
+    if self.config.unet_lr_epochs == 0:
+      self.config.unet_lr_epochs = self.config.epochs
+
     self.create_accelerator()
     self.setup_run_dir()
 
@@ -289,22 +295,21 @@ class DreamlikeTrainer:
 
       self.accelerator.backward(loss)
 
-      if self.accelerator.sync_gradients:
-        self.accelerator.clip_grad_norm_(self.unet.parameters(), self.config.max_grad_norm)
+      if self.epoch <= self.config.unet_lr_epochs:
+        if self.accelerator.sync_gradients:
+          self.accelerator.clip_grad_norm_(self.unet.parameters(), self.config.max_grad_norm)
 
-      self.unet_optimizer.step()
-      self.unet_lr_scheduler.step()
-      self.unet_optimizer.zero_grad(set_to_none=True)
+        self.unet_optimizer.step()
+        self.unet_lr_scheduler.step()
+        self.unet_optimizer.zero_grad(set_to_none=True)
 
-      if self.epoch <= min(self.config.epochs, self.config.te_lr_epochs):
+      if self.epoch <= self.config.te_lr_epochs:
         if self.accelerator.sync_gradients:
           self.accelerator.clip_grad_norm_(self.text_encoder.parameters(), self.config.max_grad_norm)
 
         self.te_optimizer.step()
         self.te_lr_scheduler.step()
         self.te_optimizer.zero_grad(set_to_none=True)
-
-
 
       self.last_loss = loss.item()
 
