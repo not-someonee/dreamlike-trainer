@@ -14,7 +14,7 @@ import saving_utils
 import train_utils
 import sd_utils
 
-from typing import Literal, List
+from typing import Literal, List, Any
 import dataclasses
 from dataclasses import dataclass
 import gc
@@ -58,6 +58,7 @@ class DreamlikeTrainerConfig:
   shuffle_captions: bool = True
   shuffle_dataset_each_epoch: bool = True
   offset_noise_weight: float = 0.07
+  max_grad_norm: float = None
 
   dataset_max_images: int = 0
 
@@ -99,9 +100,9 @@ class DreamlikeTrainerConfig:
   config_path: str = None
   run_name: str = ''
 
-  freeze_embeddings = False
-  freeze_front_n_layers = -2
-  freeze_final_layer_norm = False
+  freeze_embeddings: bool = False
+  freeze_front_n_layers: int = -2
+  freeze_final_layer_norm: bool = False
 
 
 class DreamlikeTrainer:
@@ -288,14 +289,22 @@ class DreamlikeTrainer:
 
       self.accelerator.backward(loss)
 
+      if self.accelerator.sync_gradients:
+        self.accelerator.clip_grad_norm_(self.unet.parameters(), self.config.max_grad_norm)
+
       self.unet_optimizer.step()
       self.unet_lr_scheduler.step()
       self.unet_optimizer.zero_grad(set_to_none=True)
 
-      if self.epoch <= self.config.te_lr_epochs:
+      if self.epoch <= min(self.config.epochs, self.config.te_lr_epochs):
+        if self.accelerator.sync_gradients:
+          self.accelerator.clip_grad_norm_(self.text_encoder.parameters(), self.config.max_grad_norm)
+
         self.te_optimizer.step()
         self.te_lr_scheduler.step()
         self.te_optimizer.zero_grad(set_to_none=True)
+
+
 
       self.last_loss = loss.item()
 
@@ -473,7 +482,7 @@ class DreamlikeTrainer:
         weight_decay=self.config.lion_optimizer_weight_decay,
       )
 
-  def _apply_text_encoder_freeze(self, text_encoder) -> chain[Any]:
+  def _apply_text_encoder_freeze(self, text_encoder) -> itertools.chain[Any]:
     parameters = itertools.chain([])
 
     if self.config.freeze_embeddings:

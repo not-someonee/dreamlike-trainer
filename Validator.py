@@ -39,7 +39,8 @@ class Validator:
     self.last_val_at = time.time()
 
   def train_start(self):
-    pass
+    if self.config.validate_at_training_start:
+      self.val()
 
 
   def train_end(self):
@@ -64,9 +65,7 @@ class Validator:
 
 
   def step_end(self, epoch: int, step: int, global_step: int, unet_lr: float, te_lr: float, batch, loss: float):
-    if self.config.validate_at_training_start and step == 3:
-      self.val()
-    elif (time.time() - self.last_val_at) > (self.config.validate_every_n_minutes * 60.0):
+    if (time.time() - self.last_val_at) > (self.config.validate_every_n_minutes * 60.0):
       self.val()
     elif global_step != 0 and (global_step % self.config.validate_every_n_steps) == 0:
       self.val()
